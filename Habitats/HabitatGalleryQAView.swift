@@ -1,6 +1,6 @@
 //
 //  HabitatGalleryQAView.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Debug harness for comparing every cabinet against the elephant sanctuary,
 //  which is the quality bar the other habitats are held to. Launch the app
@@ -48,7 +48,7 @@ struct HabitatGalleryQAView: View {
     private func exportSnapshotsIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-HabitatGalleryExport") else { return }
 #if canImport(UIKit)
-        let dest = URL(fileURLWithPath: "/Users/jenssomers/Desktop/Nuts & Numbers/.habitatcheck")
+        let dest = URL(fileURLWithPath: "/Users/jenssomers/Desktop/Math Steps/.habitatcheck")
         try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
         let width: CGFloat = 390
         for id in order {

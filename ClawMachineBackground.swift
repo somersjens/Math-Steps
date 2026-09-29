@@ -1,6 +1,6 @@
 //
 //  ClawMachineBackground.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  A quiet, character-coloured menu surface. The pegboard and the exact walnut
 //  artwork from the claw game tie the menus to gameplay without adding a

@@ -1,6 +1,6 @@
 //
 //  PromoTrailerDirector.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Drives the real ClawEngine + GameViewModel along a fixed teaser timeline.
 //  Character order: elephant → octopus → bear → dog → elephant, each with

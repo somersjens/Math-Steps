@@ -30,8 +30,8 @@ struct ResultView: View {
     private var maximum: Int { board.maximum }
     /// The level's score tops out at its maximum, exactly as the menu stores
     /// it; cards beyond that still count toward the player's grand total.
-    private var levelScore: Int { min(result.cardsEarned, maximum) }
-    private var showsNewBest: Bool { result.isNewPersonalBest && result.cardsEarned > 0 }
+    private var levelScore: Int { min(result.highestStep, maximum) }
+    private var showsNewBest: Bool { result.isNewPersonalBest && result.highestStep > 0 }
 
     private var isCompleted: Bool { result.reason == .roundsCompleted }
 

@@ -71,7 +71,7 @@ struct ElephantChallengeApp: App {
             defaults.set(MixedVariant.basic.rawValue, forKey: GameSettings.mixedVariantKey)
             LanguageManager.shared.override = .english
             if ProcessInfo.processInfo.arguments.contains("--export-menu-tour") {
-                GameSettings.playerName = "Nuts & Numbers"
+                GameSettings.playerName = "Math Steps"
                 GameSettings.premiumUnlockedCache = true
                 PremiumStore.shared.preparePromoUnlockedState()
             } else {

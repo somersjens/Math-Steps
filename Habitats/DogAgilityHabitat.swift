@@ -1,6 +1,6 @@
 //
 //  DogAgilityHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  A full agility ground: mown competition turf with an A-frame, weave poles,
 //  a tunnel, jumps, a tyre and a seesaw laid out in depth, ringed by a fence

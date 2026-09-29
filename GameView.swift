@@ -317,37 +317,30 @@ struct GameView: View {
         let topInset = max(screenInsets.top, isPad ? 24 : 54)
 
         return ZStack(alignment: .top) {
-            ClawPlayfield(round: model.round,
-                          puzzle: model.clawPuzzle,
-                          collectedAnswers: max(0, model.roundNumber - 1),
-                          collectedNutIDs: model.collectedNutIDs,
-                          maximumRounds: model.maximumRounds,
-                          character: character,
-                          isPad: isPad,
-                          isLive: model.acceptsInput,
-                          isRunning: isReefRunning,
-                          playsEntrance: playsFishEntrance,
-                          isStreakBoostActive: model.isStreakBoostActive,
-                          playsLevelCompletion: playsLevelCompletion,
-                          playsTimeOutFinale: playsTimeOutFinale,
-                          reduceMotion: reduceMotion,
-                          isFinalRound: model.roundNumber >= model.maximumRounds,
-                          tutorialPlan: tutorial.clawPlan,
-                          score: model.cards,
-                          topReserve: topInset + (isPad ? 8 : 6),
-                          bottomReserve: screenInsets.bottom,
-                          scoreTarget: scoreIconCenter,
-                          onGrab: { nut in
-                              switch model.resolveGrab(nut: nut) {
-                              case .correct: return true
-                              default: return false
-                              }
-                          },
-                          onScoreBubbleArrived: model.scoreBubbleArrived,
-                          onEntranceComplete: finishFishEntrance,
-                          onLevelCompletionFinished: finishLevelCompletion,
-                          onTimeOutFinished: finishTimeOutFinale,
-                          onTutorialEvent: tutorial.handleClaw)
+            MathStepsPlayfield(round: model.round,
+                               selectedOptionID: model.selectedOptionID,
+                               currentStep: model.currentStep,
+                               highestStep: model.highestStep,
+                               maximumSteps: model.maximumRounds,
+                               character: character,
+                               isPad: isPad,
+                               isLive: model.acceptsInput,
+                               isRunning: isReefRunning,
+                               playsEntrance: playsFishEntrance,
+                               playsLevelCompletion: playsLevelCompletion,
+                               playsTimeOutFinale: playsTimeOutFinale,
+                               reduceMotion: reduceMotion,
+                               tutorialPlan: tutorial.clawPlan,
+                               topReserve: topInset + (isPad ? 8 : 6),
+                               bottomReserve: screenInsets.bottom,
+                               onSelect: model.select,
+                               onRewardArrived: model.scoreBubbleArrived,
+                               onEntranceComplete: finishFishEntrance,
+                               onLevelCompletionFinished: finishLevelCompletion,
+                               onTimeOutFinished: finishTimeOutFinale,
+                               onTutorialMove: {
+                                   tutorial.handleClaw(.movedClaw)
+                               })
 
             hud
                 .padding(.leading, max(isPad ? 8 : 4, screenInsets.leading + 2))

@@ -23,6 +23,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     public let cards: Int
     public let correctAnswers: Int
     public let wrongAnswers: Int
+    /// Current and best uninterrupted climb. Optional for saves from Math Steps.
+    public let currentStep: Int?
+    public let highestStep: Int?
     public let doubleCardsAnswered: Int
     public let bonusCards: Int
     public let flamethrowersUsed: Int
@@ -57,6 +60,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 cards: Int,
                 correctAnswers: Int,
                 wrongAnswers: Int,
+                currentStep: Int? = nil,
+                highestStep: Int? = nil,
                 doubleCardsAnswered: Int,
                 bonusCards: Int,
                 flamethrowersUsed: Int,
@@ -73,6 +78,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.cards = cards
         self.correctAnswers = correctAnswers
         self.wrongAnswers = wrongAnswers
+        self.currentStep = currentStep
+        self.highestStep = highestStep
         self.doubleCardsAnswered = doubleCardsAnswered
         self.bonusCards = bonusCards
         self.flamethrowersUsed = flamethrowersUsed
@@ -94,6 +101,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
             && cards >= 0
             && correctAnswers >= 0
             && wrongAnswers >= 0
+            && (currentStep ?? 0) >= 0
+            && (highestStep ?? 0) >= (currentStep ?? 0)
             && (correctStreak ?? 0) >= 0
             && (remainingTime ?? 1) > 0
     }

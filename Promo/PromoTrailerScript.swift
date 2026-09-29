@@ -1,6 +1,6 @@
 //
 //  PromoTrailerScript.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Fixed math beats and nut placement for the App Store teaser.
 //

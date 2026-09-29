@@ -1,6 +1,6 @@
 //
 //  PromoTrailerHostView.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Hosts the real ClawPlayfield at production layout scale, with HUD, captions,
 //  and the final app-icon beat. Capture scales up to App Store export pixels.

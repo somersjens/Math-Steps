@@ -1,6 +1,6 @@
 //
 //  AnimalHabitats.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Routes each character to its own habitat scene. Every environment lives in
 //  Habitats/ and is drawn entirely from paths, curves and gradients on a

@@ -1,6 +1,6 @@
 //
 //  HabitatAmbience.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  The moving layer that sits on top of each static habitat. It follows the
 //  same budget as the elephant sanctuary: one 30 Hz timeline, a handful of

@@ -1,6 +1,6 @@
 //
 //  BearForestHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  A mountain valley: snow ridges in the far distance, a spruce forest on the
 //  slopes and a salmon river running out of the rocks toward the viewer. The

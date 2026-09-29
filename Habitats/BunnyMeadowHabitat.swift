@@ -1,6 +1,6 @@
 //
 //  BunnyMeadowHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  A kitchen garden at the edge of a flower meadow: rolling hills and a
 //  hedgerow behind, a picket fence across the middle distance, planted beds in

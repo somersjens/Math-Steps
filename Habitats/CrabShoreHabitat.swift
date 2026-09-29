@@ -1,6 +1,6 @@
 //
 //  CrabShoreHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Sunlit tidal shallows: a bright sand flat between two coral bommies, with
 //  the surface visible overhead. Deliberately warmer and shallower than the

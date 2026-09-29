@@ -1,6 +1,6 @@
 //
 //  PenguinIceHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Polar coast under a low sun: a glacier front across the horizon, open sea
 //  with floes behind, and a wind-carved ice shelf in front. A dive hole holds

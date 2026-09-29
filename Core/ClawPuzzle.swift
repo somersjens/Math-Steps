@@ -1,6 +1,6 @@
 //
 //  ClawPuzzle.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Builds one claw-machine level: the full sum list and a physical pile that
 //  is guaranteed to stay solvable and finish empty.

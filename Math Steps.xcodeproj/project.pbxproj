@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA00000130A0000000000001 /* MathStepsGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000230A0000000000002 /* MathStepsGame.swift */; };
 		F95BEE71306C406F0035F17C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE5B306C406F0035F17C /* SettingsView.swift */; };
 		F95BEE72306C406F0035F17C /* QuestionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE27306C406F0035F17C /* QuestionGenerator.swift */; };
 		F95BEE73306C406F0035F17C /* PremiumStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE48306C406F0035F17C /* PremiumStore.swift */; };
@@ -97,6 +98,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		AA00000230A0000000000002 /* MathStepsGame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathStepsGame.swift; sourceTree = "<group>"; };
 		F95BEE06306C404B0035F17C /* Math Steps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Math Steps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F95BEE16306C406F0035F17C /* AnimalHabitats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimalHabitats.swift; sourceTree = "<group>"; };
 		F95BEE17306C406F0035F17C /* AppAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAudio.swift; sourceTree = "<group>"; };
@@ -208,6 +210,7 @@
 		F95BEDFD306C404B0035F17C = {
 			isa = PBXGroup;
 			children = (
+				AA00000230A0000000000002 /* MathStepsGame.swift */,
 				F95BEE16306C406F0035F17C /* AnimalHabitats.swift */,
 				F95BEE17306C406F0035F17C /* AppAudio.swift */,
 				F95BEE18306C406F0035F17C /* AppSettings.swift */,
@@ -426,6 +429,7 @@
 		F95BEE02306C404B0035F17C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+				AA00000130A0000000000001 /* MathStepsGame.swift in Sources */,
 				F95BEE71306C406F0035F17C /* SettingsView.swift in Sources */,
 				F95BEE72306C406F0035F17C /* QuestionGenerator.swift in Sources */,
 				F95BEE73306C406F0035F17C /* PremiumStore.swift in Sources */,
@@ -634,10 +638,10 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 26;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Hakketjak.Math-Steps";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -651,8 +655,8 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,3,7";
-				TVOS_DEPLOYMENT_TARGET = 27.0;
-				XROS_DEPLOYMENT_TARGET = 27.0;
+				TVOS_DEPLOYMENT_TARGET = 26;
+				XROS_DEPLOYMENT_TARGET = 26;
 			};
 			name = Debug;
 		};
@@ -682,10 +686,10 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 26;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Hakketjak.Math-Steps";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -699,8 +703,8 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,3,7";
-				TVOS_DEPLOYMENT_TARGET = 27.0;
-				XROS_DEPLOYMENT_TARGET = 27.0;
+				TVOS_DEPLOYMENT_TARGET = 26;
+				XROS_DEPLOYMENT_TARGET = 26;
 			};
 			name = Release;
 		};

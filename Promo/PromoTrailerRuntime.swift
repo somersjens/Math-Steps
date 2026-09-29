@@ -1,6 +1,6 @@
 //
 //  PromoTrailerRuntime.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Development-only App Store teaser entry. Activated solely by launch
 //  arguments so Release production gameplay is untouched.

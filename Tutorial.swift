@@ -1,6 +1,6 @@
 //
 //  Tutorial.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  The guided first game. A new player is walked through the claw machine:
 //  steering, grabbing the right nut, seeing the score change, then the timer.

@@ -1,6 +1,6 @@
 //
 //  OctopusReefHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  A deep coral reef: the surface far overhead, a drop-off fading into blue,
 //  bommies closing both sides, a rock arch above and a swept sand channel down

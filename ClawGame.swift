@@ -1,6 +1,6 @@
 //
 //  ClawGame.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  The claw-machine playing surface. The session still lives in `MemoryGame`;
 //  this file only steers the hanging elephant, decides which nut was chosen

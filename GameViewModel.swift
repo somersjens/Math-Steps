@@ -57,6 +57,8 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var round: GameRound?
     @Published private(set) var roundNumber = 0
     @Published private(set) var cards = 0
+    @Published private(set) var currentStep = 0
+    @Published private(set) var highestStep = 0
     @Published private(set) var selectedOptionID: UUID?
     @Published private(set) var isGameOver = false
     @Published private(set) var result = SessionResult()
@@ -89,6 +91,9 @@ final class GameViewModel: ObservableObject {
     /// matching currency nut physically reaches it.
     private var pendingScoreRewards: [Int] = []
     private var clockTimer: Timer?
+    /// Time may reach zero during a jump or fall. The clock stops immediately,
+    /// while game-over waits for that already-started movement to finish.
+    private var pendingTimeExpiry = false
 
     var maximumRounds: Int { engine.maximumRounds }
     var acceptsInput: Bool { state == .answering && !isPaused }
@@ -209,6 +214,7 @@ final class GameViewModel: ObservableObject {
         preparationTask = nil
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        pendingTimeExpiry = false
     }
 
     /// Temporarily stops an active run without ending it. The snapshot also
@@ -278,6 +284,7 @@ final class GameViewModel: ObservableObject {
         isPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        pendingTimeExpiry = false
         streakAnnouncementID = 0
         collectedNutIDs = []
         clawPuzzle = nil
@@ -310,6 +317,7 @@ final class GameViewModel: ObservableObject {
         isTutorialClockPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        pendingTimeExpiry = false
         streakAnnouncementID = 0
         configureTimer(from: nil)
         startClock()
@@ -358,6 +366,13 @@ final class GameViewModel: ObservableObject {
         schedule(after: delay, token: token) { [weak self] in
             guard let self else { return }
             guard self.engine.finishResolving() else { return }
+            if self.pendingTimeExpiry {
+                self.pendingTimeExpiry = false
+                self.engine.expireTime()
+                self.finishSession()
+                self.sync()
+                return
+            }
             if self.trailerOwnsRounds {
                 // Director will install the next scripted round; stay answering
                 // on the current sum so a factory question cannot leak in.
@@ -416,6 +431,13 @@ final class GameViewModel: ObservableObject {
         schedule(after: delay, token: token) { [weak self] in
             guard let self else { return }
             guard self.engine.finishResolving() else { return }
+            if self.pendingTimeExpiry {
+                self.pendingTimeExpiry = false
+                self.engine.expireTime()
+                self.finishSession()
+                self.sync()
+                return
+            }
             if self.trailerOwnsRounds {
                 self.engine.trailerResumeAnswering()
                 self.sync()
@@ -494,17 +516,18 @@ final class GameViewModel: ObservableObject {
         // can therefore contribute its maximum once, even though subsequent
         // maximum runs still count toward the separate ×N completion badge.
         let previousBest = store.bestScore(board)
-        let gained = max(0, min(engine.cards, board.maximum) - previousBest)
+        let score = min(engine.highestStep, board.maximum)
+        let gained = max(0, score - previousBest)
         let newTotal = store.addCards(gained)
         // The score belongs to the board this session was played on: the card
         // count, and on Supermix the combination, keep separate bests.
-        let best = store.recordScore(engine.cards, board: board)
+        let best = store.recordScore(score, board: board)
         let unlocked = CharacterUnlocks.newlyUnlocked(from: previousTotal, to: newTotal)
 
         // Reaching this board's maximum is tallied every time, which is what
         // the ×N badge on a completed card counts.
         let maximum = board.maximum
-        if engine.cards >= maximum {
+        if score >= maximum {
             store.recordMaxCompletion(board)
         }
 
@@ -514,7 +537,7 @@ final class GameViewModel: ObservableObject {
 
         ReviewRequestCoordinator.shared.recordCompletedGame(
             isNewHighScore: best.isNewBest,
-            score: engine.cards,
+            score: score,
             maximumScore: maximum
         )
 
@@ -536,6 +559,8 @@ final class GameViewModel: ObservableObject {
         round = engine.round
         roundNumber = engine.roundNumber
         if pendingScoreRewards.isEmpty { cards = engine.cards }
+        currentStep = engine.currentStep
+        highestStep = engine.highestStep
         selectedOptionID = engine.selectedOptionID
         // Publish the completed result before the game-over flag. GameView
         // uses its reason to decide whether to play the reef finale first.
@@ -578,6 +603,11 @@ final class GameViewModel: ObservableObject {
         clock.advance(by: 0.1)
         if clock.remaining <= 0 {
             clock.expire()
+            if engine.state == .resolving {
+                pendingTimeExpiry = true
+                stopClock()
+                return
+            }
             engine.expireTime()
             finishSession()
             sync()

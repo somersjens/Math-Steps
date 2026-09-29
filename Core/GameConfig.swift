@@ -15,13 +15,13 @@ nonisolated public enum GameConfig {
 
     // MARK: Answers
 
-    /// How many answer bubbles a question offers. One fixed number for every
-    /// topic and every combination: the reef releases the same five answers,
-    /// over and over, for as long as the sum stands. It used to be a choice
+    /// How many glass answer tiles a question offers. One fixed number for
+    /// every topic and every combination: Math Steps always presents three
+    /// reachable choices. It used to be a choice
     /// between two, three and four, which made every level three separate
     /// scoreboards aiming at three different targets — see `migrateToFixed
     /// AnswerCount` for how those were merged back into one.
-    public static let answerBubbleCount = 5
+    public static let answerBubbleCount = 3
 
     /// Wrong answers a question must supply: every bubble but the right one.
     public static var distractorCount: Int { answerBubbleCount - 1 }
@@ -58,8 +58,8 @@ nonisolated public enum GameConfig {
     /// Answer cards fading/scaling in once the question is visible.
     public static let answerRevealDuration = 0.18
     /// How long correct/wrong feedback stays on screen before the next round.
-    public static let correctFeedbackDuration = 0.32
-    public static let wrongFeedbackDuration = 0.55
+    public static let correctFeedbackDuration = 0.46
+    public static let wrongFeedbackDuration = 1.48
     /// Gap between feedback ending and the next round's closed cards appearing.
     public static let roundTransitionDuration = 0.12
 
@@ -93,12 +93,12 @@ nonisolated public enum GameConfig {
     /// The second half of the catalog is Premium-exclusive: `nil` means the
     /// character cannot be earned with cards at all, no matter the total.
     public static let characterUnlockRequirements: [Int?] = [
-        0,          // elephant — from the start
-        500,        // octopus
-        1_500,      // crab
-        3_000,      // bear
-        5_000,      // fox
-        nil, nil, nil, nil, nil   // frog, penguin, bunny, dog, lion — Premium
+        0,          // dog — from the start
+        500,        // lion
+        1_500,      // octopus
+        3_000,      // crab
+        5_000,      // elephant
+        nil, nil, nil, nil, nil   // bear, fox, frog, penguin, bunny — Premium
     ]
 
     // MARK: Claw machine

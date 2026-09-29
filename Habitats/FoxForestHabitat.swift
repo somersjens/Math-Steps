@@ -1,6 +1,6 @@
 //
 //  FoxForestHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Deep autumn woodland. Receding trunks and a low sun build the depth, a den
 //  under a root mound anchors the right side and the canopy closes the top of

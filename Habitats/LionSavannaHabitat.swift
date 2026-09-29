@@ -1,6 +1,6 @@
 //
 //  LionSavannaHabitat.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Dry-season savanna in the late afternoon: a granite kopje on the right, an
 //  escarpment on the horizon, bleached grass across the plain and an umbrella

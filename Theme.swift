@@ -394,15 +394,21 @@ enum CharacterCatalog {
     /// the menu and the motion trail behind a portrait all carry the colours
     /// the player is actually looking at.
     static let all: [AnimalCharacter] = [
-        AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
-                        primaryRGB: (1.00, 0.59, 0.54), deepRGB: (0.76, 0.31, 0.28),
-                        skyRGB: (1.00, 0.91, 0.89), tintRGB: (0.98, 0.77, 0.74)),
+        AnimalCharacter(id: "dog", name: "Dog", emoji: "🐶", slot: 9,
+                        primaryRGB: (0.20, 0.66, 0.69), deepRGB: (0.06, 0.42, 0.46),
+                        skyRGB: (0.89, 0.97, 0.98), tintRGB: (0.81, 0.95, 0.96)),
+        AnimalCharacter(id: "lion", name: "Lion", emoji: "🦁", slot: 10,
+                        primaryRGB: (0.95, 0.74, 0.20), deepRGB: (0.68, 0.45, 0.08),
+                        skyRGB: (1.00, 0.96, 0.87), tintRGB: (1.00, 0.94, 0.77)),
         AnimalCharacter(id: "octopus", name: "Octopus", emoji: "🐙", slot: 1,
                         primaryRGB: (0.62, 0.40, 0.87), deepRGB: (0.35, 0.18, 0.60),
                         skyRGB: (0.93, 0.88, 0.99), tintRGB: (0.88, 0.79, 0.98)),
         AnimalCharacter(id: "crab", name: "Crab", emoji: "🦀", slot: 2,
                         primaryRGB: (0.90, 0.27, 0.10), deepRGB: (0.62, 0.13, 0.03),
                         skyRGB: (1.00, 0.90, 0.87), tintRGB: (1.00, 0.82, 0.77)),
+        AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
+                        primaryRGB: (1.00, 0.59, 0.54), deepRGB: (0.76, 0.31, 0.28),
+                        skyRGB: (1.00, 0.91, 0.89), tintRGB: (0.98, 0.77, 0.74)),
         AnimalCharacter(id: "bear", name: "Bear", emoji: "🐻", slot: 4,
                         primaryRGB: (0.72, 0.44, 0.16), deepRGB: (0.42, 0.20, 0.06),
                         skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79)),
@@ -417,13 +423,7 @@ enum CharacterCatalog {
                         skyRGB: (0.89, 0.92, 0.98), tintRGB: (0.81, 0.86, 0.96)),
         AnimalCharacter(id: "bunny", name: "Bunny", emoji: "🐰", slot: 8,
                         primaryRGB: (0.94, 0.56, 0.60), deepRGB: (0.72, 0.29, 0.37),
-                        skyRGB: (1.00, 0.87, 0.89), tintRGB: (0.99, 0.78, 0.80)),
-        AnimalCharacter(id: "dog", name: "Dog", emoji: "🐶", slot: 9,
-                        primaryRGB: (0.20, 0.66, 0.69), deepRGB: (0.06, 0.42, 0.46),
-                        skyRGB: (0.89, 0.97, 0.98), tintRGB: (0.81, 0.95, 0.96)),
-        AnimalCharacter(id: "lion", name: "Lion", emoji: "🦁", slot: 10,
-                        primaryRGB: (0.95, 0.74, 0.20), deepRGB: (0.68, 0.45, 0.08),
-                        skyRGB: (1.00, 0.96, 0.87), tintRGB: (1.00, 0.94, 0.77))
+                        skyRGB: (1.00, 0.87, 0.89), tintRGB: (0.99, 0.78, 0.80))
     ]
 
     static func character(id: String) -> AnimalCharacter {

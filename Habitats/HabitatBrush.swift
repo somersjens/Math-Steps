@@ -1,6 +1,6 @@
 //
 //  HabitatBrush.swift
-//  Nuts & Numbers
+//  Math Steps
 //
 //  Shared drawing vocabulary for the procedural habitat cabinets. Every scene
 //  is built from these primitives so the ten environments stay consistent in

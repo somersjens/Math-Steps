@@ -58,6 +58,8 @@ nonisolated public struct SessionResult: Equatable, Sendable {
     public var correctAnswers = 0
     public var wrongAnswers = 0
     public var cardsEarned = 0
+    /// Math Steps score: the highest uninterrupted stair reached this run.
+    public var highestStep = 0
     /// Kept for paused-session compatibility. New play never awards extra nuts.
     public var bonusCards = 0
     /// Kept for paused-session compatibility. New play never doubles a nut.
@@ -104,6 +106,8 @@ nonisolated public final class MemoryGame {
 
     public private(set) var roundNumber = 0
     public private(set) var cards = 0
+    public private(set) var currentStep = 0
+    public private(set) var highestStep = 0
     /// The option the player tapped this round, if any.
     public private(set) var selectedOptionID: UUID?
     public private(set) var lastOutcome: AnswerOutcome?
@@ -183,6 +187,9 @@ nonisolated public final class MemoryGame {
         result.doubleCardsAnswered = session.doubleCardsAnswered
         result.bonusCards = session.bonusCards
         result.cardsEarned = session.cards
+        currentStep = session.currentStep ?? session.correctStreak ?? 0
+        highestStep = session.highestStep ?? max(currentStep, session.correctAnswers)
+        result.highestStep = highestStep
         correctStreak = session.correctStreak ?? 0
         installPlan(startingAt: session.roundNumber,
                     restoring: session.puzzle,
@@ -202,6 +209,8 @@ nonisolated public final class MemoryGame {
                              cards: cards,
                              correctAnswers: result.correctAnswers,
                              wrongAnswers: result.wrongAnswers,
+                             currentStep: currentStep,
+                             highestStep: highestStep,
                              doubleCardsAnswered: result.doubleCardsAnswered,
                              bonusCards: result.bonusCards,
                              // Legacy field: the helper it counted is gone.
@@ -298,15 +307,9 @@ nonisolated public final class MemoryGame {
     public func advance() -> GameState {
         guard state == .roundComplete else { return state }
 
-        // A missed answer does not use up a round: the same sum comes straight
-        // back while the clock continues to run.
-        if repeatsRound {
-            repeatsRound = false
-            selectedOptionID = nil
-            lastOutcome = nil
-            state = .answering
-            return state
-        }
+        // Every choice consumes the shown sum. A wrong tile resets the climb,
+        // but the next sum still waits until the fall/lift sequence is done.
+        repeatsRound = false
         if roundNumber >= maximumRounds {
             finish(reason: .roundsCompleted)
             return state
@@ -459,14 +462,16 @@ nonisolated public final class MemoryGame {
             cards += earned
             result.correctAnswers += 1
             result.cardsEarned += earned
+            currentStep += 1
+            highestStep = max(highestStep, currentStep)
+            result.highestStep = highestStep
             correctStreak += 1
             outcome = .correct(cardsEarned: earned)
         } else {
             result.wrongAnswers += 1
             correctStreak = 0
-            // The sum stays standing; `advance` puts this very round back
-            // into play instead of installing the next one.
-            repeatsRound = true
+            currentStep = 0
+            repeatsRound = false
             outcome = .wrong(correctOptionID: correctOptionID)
         }
         lastOutcome = outcome
@@ -476,6 +481,7 @@ nonisolated public final class MemoryGame {
     private func finish(reason: GameOverReason) {
         gameOverReason = reason
         result.reason = reason
+        result.highestStep = highestStep
         state = .gameOver
     }
 
@@ -523,6 +529,8 @@ nonisolated public final class MemoryGame {
         }
         collectedNutIDs = []
         cards = 0
+        currentStep = 0
+        highestStep = 0
         result = SessionResult()
         correctStreak = 0
         selectedOptionID = nil

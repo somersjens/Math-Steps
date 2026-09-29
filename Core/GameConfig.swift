@@ -50,15 +50,16 @@ nonisolated public enum GameConfig {
 
     // MARK: Timing (seconds)
     //
-    // The brief is explicit: the next round must be able to start within
-    // roughly 300–600 ms. These are the only durations gameplay may use.
+    // The correct-answer beat leaves enough room for all eight authored jump
+    // frames and the camera landing. Wrong-answer timing also includes the
+    // break, fall and return-to-start choreography.
 
     /// Card flip animation.
     public static let cardFlipDuration = 0.28
     /// Answer cards fading/scaling in once the question is visible.
     public static let answerRevealDuration = 0.18
     /// How long correct/wrong feedback stays on screen before the next round.
-    public static let correctFeedbackDuration = 0.46
+    public static let correctFeedbackDuration = 0.62
     public static let wrongFeedbackDuration = 1.48
     /// Gap between feedback ending and the next round's closed cards appearing.
     public static let roundTransitionDuration = 0.12

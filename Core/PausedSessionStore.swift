@@ -1,0 +1,187 @@
+//
+//  PausedSessionStore.swift
+//  Math Memory
+//
+//  Leaving a level part-way through pauses it rather than throwing it away.
+//  The cards collected so far, the time left and the round reached are kept,
+//  so re-entering that level continues where the player stopped.
+//
+//  Only one session per level is kept, and it is cleared the moment the level
+//  is actually finished (time expired, or the last round played).
+//
+
+import Foundation
+
+/// A session frozen mid-play. Everything here is plain, validated data: a
+/// corrupt or outdated record is discarded rather than resumed.
+nonisolated public struct PausedSession: Codable, Equatable, Sendable {
+    /// The scoreboard this run belongs to — see `LevelBoard.storageID`. A run
+    /// paused on one Supermix combination must not resume onto another, where
+    /// its cards would be banked against the wrong best.
+    public let boardID: String
+    public let roundNumber: Int
+    public let cards: Int
+    public let correctAnswers: Int
+    public let wrongAnswers: Int
+    public let doubleCardsAnswered: Int
+    public let bonusCards: Int
+    public let flamethrowersUsed: Int
+    /// Optional so sessions written before the in-level streak feature remain
+    /// decodable and simply resume without an active streak/aura.
+    public let correctStreak: Int?
+    /// Unused leftover from the old 2x helper fish. Kept so older paused
+    /// sessions still decode.
+    public let hasBonusFishPower: Bool?
+    /// Seconds left on the claw clock. Missing on sessions saved before the
+    /// claw game, which resume with a fresh full timer.
+    public let remainingTime: Double?
+    /// Seed that rebuilds the exact sum list and nut pile. Missing on older
+    /// records, which get a new pile for the remaining rounds.
+    public let puzzleSeed: UInt64?
+    /// The immutable plan made before play starts: every sum, printed nut and
+    /// physical position. New sessions restore this snapshot directly instead
+    /// of relying on regeneration to happen to produce the same board.
+    public let puzzle: ClawPuzzle?
+    /// Shells collected so far, in grab order. Missing on older saves, which
+    /// rebuild the pile from the assigned sequence instead.
+    public let collectedNutIDs: [UUID]?
+    /// Puzzle-question indices not yet answered, including the standing sum.
+    /// Missing on older saves, which rebuild remaining from `roundNumber`.
+    public let remainingQuestionIndices: [Int]?
+    /// Which puzzle question is on the plaque. Missing on older saves, which
+    /// pick the next grabable remaining answer instead.
+    public let standingQuestionIndex: Int?
+
+    public init(boardID: String,
+                roundNumber: Int,
+                cards: Int,
+                correctAnswers: Int,
+                wrongAnswers: Int,
+                doubleCardsAnswered: Int,
+                bonusCards: Int,
+                flamethrowersUsed: Int,
+                correctStreak: Int? = nil,
+                hasBonusFishPower: Bool? = nil,
+                remainingTime: Double? = nil,
+                puzzleSeed: UInt64? = nil,
+                puzzle: ClawPuzzle? = nil,
+                collectedNutIDs: [UUID]? = nil,
+                remainingQuestionIndices: [Int]? = nil,
+                standingQuestionIndex: Int? = nil) {
+        self.boardID = boardID
+        self.roundNumber = roundNumber
+        self.cards = cards
+        self.correctAnswers = correctAnswers
+        self.wrongAnswers = wrongAnswers
+        self.doubleCardsAnswered = doubleCardsAnswered
+        self.bonusCards = bonusCards
+        self.flamethrowersUsed = flamethrowersUsed
+        self.correctStreak = correctStreak
+        self.hasBonusFishPower = hasBonusFishPower
+        self.remainingTime = remainingTime
+        self.puzzleSeed = puzzleSeed
+        self.puzzle = puzzle
+        self.collectedNutIDs = collectedNutIDs
+        self.remainingQuestionIndices = remainingQuestionIndices
+        self.standingQuestionIndex = standingQuestionIndex
+    }
+
+    /// A record is only usable if it describes a session that can still be
+    /// played: time and rounds left, and counts that are not nonsense.
+    public var isResumable: Bool {
+        roundNumber >= 1
+            && roundNumber <= GameConfig.maximumRoundCeiling
+            && cards >= 0
+            && correctAnswers >= 0
+            && wrongAnswers >= 0
+            && (correctStreak ?? 0) >= 0
+            && (remainingTime ?? 1) > 0
+    }
+}
+
+public final class PausedSessionStore {
+    public static let shared = PausedSessionStore(defaults: UserDefaults.standard)
+
+    static let key = "paused.sessions.v3"
+
+    private let defaults: KeyValueStore
+    private static let decoder = JSONDecoder()
+    private static let encoder = JSONEncoder()
+
+    /// The last blob that was decoded, with its result. Every level card on the
+    /// menu asks for its own paused session, so without this the same record set
+    /// is decoded from scratch a hundred times over during a single redraw. The
+    /// raw data is the cache key, so a write from anywhere — including a direct
+    /// `removeObject` during migration — is picked up on the next read.
+    private var cachedData: Data?
+    private var cachedSessions: [String: PausedSession] = [:]
+
+    public init(defaults: KeyValueStore) {
+        self.defaults = defaults
+    }
+
+    // MARK: - Reading
+
+    /// The paused session for a board, or nil when there is none to resume.
+    /// Anything that fails validation is treated as absent.
+    public func session(forBoardID boardID: String) -> PausedSession? {
+        guard let session = all()[boardID], session.isResumable else { return nil }
+        return session
+    }
+
+    public func session(_ board: LevelBoard) -> PausedSession? {
+        session(forBoardID: board.storageID)
+    }
+
+    public func hasPausedSession(forBoardID boardID: String) -> Bool {
+        session(forBoardID: boardID) != nil
+    }
+
+    // MARK: - Writing
+
+    public func save(_ session: PausedSession) {
+        // A session with nothing left to play is finished, not paused.
+        guard session.isResumable else {
+            clear(boardID: session.boardID)
+            return
+        }
+        var sessions = all()
+        sessions[session.boardID] = session
+        write(sessions)
+    }
+
+    public func clear(boardID: String) {
+        var sessions = all()
+        guard sessions.removeValue(forKey: boardID) != nil else { return }
+        write(sessions)
+    }
+
+    public func clear(_ board: LevelBoard) { clear(boardID: board.storageID) }
+
+    public func clearAll() {
+        defaults.removeObject(forKey: Self.key)
+    }
+
+    // MARK: - Storage
+
+    private func all() -> [String: PausedSession] {
+        guard let data = defaults.object(forKey: Self.key) as? Data else {
+            cachedData = nil
+            cachedSessions = [:]
+            return [:]
+        }
+        if data == cachedData { return cachedSessions }
+        // Unreadable data is dropped rather than allowed to fail a launch.
+        let sessions = (try? Self.decoder.decode([String: PausedSession].self, from: data)) ?? [:]
+        cachedData = data
+        cachedSessions = sessions
+        return sessions
+    }
+
+    private func write(_ sessions: [String: PausedSession]) {
+        guard let data = try? Self.encoder.encode(sessions) else { return }
+        defaults.set(data, forKey: Self.key)
+        cachedData = data
+        cachedSessions = sessions
+    }
+}

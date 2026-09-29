@@ -1,0 +1,136 @@
+//
+//  GameConfig.swift
+//  Elephant Challenge: Math Memory
+//
+//  The single source of truth for every tunable gameplay number. Nothing in the
+//  game may hardcode a probability, a duration or an unlock
+//  requirement — it is declared here and read from here.
+//
+
+import Foundation
+
+// MARK: - Central configuration
+
+nonisolated public enum GameConfig {
+
+    // MARK: Answers
+
+    /// How many answer bubbles a question offers. One fixed number for every
+    /// topic and every combination: the reef releases the same five answers,
+    /// over and over, for as long as the sum stands. It used to be a choice
+    /// between two, three and four, which made every level three separate
+    /// scoreboards aiming at three different targets — see `migrateToFixed
+    /// AnswerCount` for how those were merged back into one.
+    public static let answerBubbleCount = 5
+
+    /// Wrong answers a question must supply: every bubble but the right one.
+    public static var distractorCount: Int { answerBubbleCount - 1 }
+
+    // MARK: Session
+
+    /// A session ends when the board's own target is reached (`LevelBoard
+    /// .maximum`) or its clock runs out — never on a flat round count, which is
+    /// what used to stop a 50-nut board at around 24.
+    ///
+    /// Every round pays at least one nut, so a board can always be filled
+    /// within `maximum` rounds. This is the ceiling across every board, used
+    /// only to sanity-check a stored session.
+    public static var maximumRoundCeiling: Int { supermixLevelMaximum }
+
+    /// Cards awarded for a correct nut.
+    public static let normalCardReward = 1
+
+    // MARK: Bonuses
+
+    /// Five correct answers in a row used to start a 2x streak. The threshold
+    /// is kept so older trailer cues still clamp to a valid pre-boost count;
+    /// scoring itself never multiplies.
+    public static let streakThreshold = 5
+    public static let streakMultiplier = 2
+
+    // MARK: Timing (seconds)
+    //
+    // The brief is explicit: the next round must be able to start within
+    // roughly 300–600 ms. These are the only durations gameplay may use.
+
+    /// Card flip animation.
+    public static let cardFlipDuration = 0.28
+    /// Answer cards fading/scaling in once the question is visible.
+    public static let answerRevealDuration = 0.18
+    /// How long correct/wrong feedback stays on screen before the next round.
+    public static let correctFeedbackDuration = 0.32
+    public static let wrongFeedbackDuration = 0.55
+    /// Gap between feedback ending and the next round's closed cards appearing.
+    public static let roundTransitionDuration = 0.12
+
+    /// Total time from answering to the next round being interactive.
+    public static var nextRoundDelay: (correct: Double, wrong: Double) {
+        (correctFeedbackDuration + roundTransitionDuration,
+         wrongFeedbackDuration + roundTransitionDuration)
+    }
+
+    // MARK: Levels
+
+    /// Levels available without Premium.
+    public static let freeLevelCount = 12
+    /// Highest level Premium unlocks.
+    public static let maximumLevel = 99
+
+    /// How strongly question selection leans toward the highest available
+    /// sub-level. Weight of sub-level i (1-based) is `i ^ levelWeightExponent`,
+    /// so lower levels stay in the mix but the top of the range dominates.
+    public static let levelWeightExponent = 1.0
+    /// The selected level itself is guaranteed at least this share of rounds,
+    /// so "the highest available difficulty appears regularly" is not left to
+    /// chance on a level-40 run.
+    public static let topLevelMinimumShare = 0.35
+
+    // MARK: Characters
+
+    /// Total earned cards required to unlock each character, in catalog order.
+    /// Index 0 is the starter character and is therefore always 0.
+    ///
+    /// The second half of the catalog is Premium-exclusive: `nil` means the
+    /// character cannot be earned with cards at all, no matter the total.
+    public static let characterUnlockRequirements: [Int?] = [
+        0,          // elephant — from the start
+        500,        // octopus
+        1_500,      // crab
+        3_000,      // bear
+        5_000,      // fox
+        nil, nil, nil, nil, nil   // frog, penguin, bunny, dog, lion — Premium
+    ]
+
+    // MARK: Claw machine
+
+    /// Seconds on the clock for each nut the board asks the player to collect.
+    public static let clawSecondsPerCard = 10.0
+    /// Every shell in the initial pile belongs to one of the level's sums. A
+    /// zero ratio deliberately leaves no decoys behind after the final answer.
+    public static let clawDistractorRatio = 0.0
+
+    // MARK: Level progress
+
+    /// How many answer nuts fill a board depends on the chosen exercise.
+    /// Supermix remains the only route that goes all the way to 50 nuts.
+    public static let orderLevelMaximum = 25
+    public static let randomLevelMaximum = 35
+    public static let mixedLevelMaximum = 45
+    public static let supermixLevelMaximum = 50
+
+    /// Default used by views before they receive their concrete board.
+    public static let levelMaximum = mixedLevelMaximum
+
+    /// Ceiling on the "reached the maximum ×N" tally, so a long-lived save
+    /// cannot grow the badge without bound.
+    public static let maximumCompletionCount = 100
+
+    /// The three progress dots fill at these shares of `levelCompletionCards`,
+    /// so the card art follows the economy instead of hardcoded scores.
+    public static let levelTierShares = [0.01, 0.4, 0.75]
+
+    // MARK: Storage
+
+    /// Bumped whenever the persisted shape changes; drives migration.
+    public static let storageVersion = 4
+}

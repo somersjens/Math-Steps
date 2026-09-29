@@ -1,0 +1,6965 @@
+//
+//  ClawGame.swift
+//  Nuts & Numbers
+//
+//  The claw-machine playing surface. The session still lives in `MemoryGame`;
+//  this file only steers the hanging elephant, decides which nut was chosen
+//  (including one sitting under another), slides the pile into the hole, and
+//  plays the grab / return / time-up animations.
+//
+
+import SwiftUI
+import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
+
+// MARK: - Tuning
+
+enum ClawConfig {
+    static let tick = 1.0 / 60.0
+
+    static let trolleySpeed: CGFloat = 1.05
+    static let swingSpring: CGFloat = 20
+    static let swingDamping: CGFloat = 6.8
+    static let swingDrive: CGFloat = 5.6
+    static let maxSwing: CGFloat = 0.42
+    /// Downward swipe on the playfield that lowers the claw in place.
+    static let screenGrabSwipe: CGFloat = 36
+    /// Extra band above the arcade panel (covers the bottom nut row) that stays
+    /// on the poke / grab instead of the screen-half steer.
+    static func controlSafetyMargin(isPad: Bool) -> CGFloat { isPad ? 140 : 84 }
+    static func pokeSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 430 : 200 }
+    static func grabSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 300 : 132 }
+
+    /// Full-depth lower; kept gentle so the whole grab loop can breathe.
+    static let descendDuration = 0.58
+    static let grabPause = 0.26
+    static let ascendDuration = 0.50
+    static let carryDuration = 0.42
+    static let dropDuration = 0.40
+    static let dropSettle = 0.20
+    static let returnDuration = 0.34
+    static let spitDuration = 1.08
+    static let cascadeDuration = 0.30
+    static let cascadeStagger = 0.08
+    /// Gravity for a released nut falling into the crate, in points/s².
+    static let dropGravity: CGFloat = 2400
+
+    static let entranceDuration = 0.85
+    /// Resting trolley depth is 0. A negative value parks the elephant above
+    /// the glass so the start card never shows it already hanging, and the
+    /// entrance can lower it into view.
+    static let entranceParkY: CGFloat = -0.55
+    static let completionDuration = 2.18
+    static let timeUpDuration = 1.35
+    /// Hook rides left and stays there for the throw, so the salto has the
+    /// full cabinet to fly through to the right.
+    static let celebrationParkArrival = 0.40
+    /// Left apex. The return throw starts immediately — no dwell at the dead point.
+    static let celebrationLeftPeak = 0.38
+    /// Release is past the bottom, still climbing right, with a whip.
+    static let celebrationRelease = 0.90
+    static let celebrationMouthArrival = 1.40
+    static let celebrationLeftAngle: CGFloat = 0.98
+    /// Fraction of a half-period at release (0.5 = bottom, 1 = right apex).
+    static let celebrationReleasePendulumT: Double = 0.66
+    static var celebrationReleaseAngle: CGFloat {
+        celebrationLeftAngle * 0.97 * CGFloat(cos(.pi * celebrationReleasePendulumT))
+    }
+    static func celebrationPendulumAngle(age: Double,
+                                         startSwing: CGFloat,
+                                         windUpExtension: Double = 0) -> CGFloat {
+        let peak = celebrationLeftPeak + windUpExtension
+        if age <= peak {
+            let p = min(1, max(0, age / peak))
+            // A long pull from above the bin must build speed instead of
+            // jumping straight to it. The five-tap preview keeps its proven
+            // compact ease-out because it starts near the resting position.
+            let ease = windUpExtension > 0
+                ? p * p * (3 - 2 * p)
+                : 1 - (1 - p) * (1 - p)
+            let apex = celebrationLeftAngle * 0.97
+            return startSwing + (apex - startSwing) * CGFloat(ease)
+        }
+        let release = celebrationRelease + windUpExtension
+        let span = max(0.01, release - peak)
+        let linear = min(1, max(0, (age - peak) / span))
+        // Advance faster than linear at the start so the throw leaves the
+        // apex immediately instead of easing out of it in slow motion.
+        let warped = pow(linear, 0.78)
+        return celebrationLeftAngle * 0.97 * CGFloat(cos(.pi * warped * celebrationReleasePendulumT))
+    }
+    static func celebrationReleaseAngularVelocity() -> CGFloat {
+        let span = max(0.01, celebrationRelease - celebrationLeftPeak)
+        let t = celebrationReleasePendulumT
+        let k = 0.78
+        // d/dt [A cos(π t p^k)] at p=1.
+        let amplitude = celebrationLeftAngle * 0.97
+        return -amplitude * CGFloat(.pi * t * k * sin(.pi * t) / span)
+    }
+    static let timeUpRelease = 0.58
+
+    /// The five animated hanging layers share one square canvas. Keep the
+    /// assembled character at the same optical height as the previous sprite.
+    static func elephantVisibleHeight(isPad: Bool) -> CGFloat {
+        isPad ? 251 : 193
+    }
+    /// Visible free rope between the trolley rail and the hook. The previous
+    /// sprite sat almost flush against the rail, leaving no line to flex.
+    static func elephantRopeLength(isPad: Bool) -> CGFloat { isPad ? 58 : 44 }
+
+    /// Width of the bamboo side columns. Matches the original cabinet posts.
+    static func cabinetPostWidth(size: CGSize, isPad _: Bool) -> CGFloat {
+        max(26, size.width * 0.078)
+    }
+
+    /// How far the glass chamber sits in from the screen edge. iPad keeps the
+    /// original bamboo thickness and tucks the cabinet just inside it.
+    static func playPostInset(size: CGSize, isPad: Bool) -> CGFloat {
+        if isPad {
+            return max(1, cabinetPostWidth(size: size, isPad: true) - 6)
+        }
+        return 26
+    }
+
+    static func nutPixelRadius(unit: Double, pile: CGSize, isPad _: Bool) -> CGFloat {
+        CGFloat(unit) * pile.width
+    }
+
+    /// `1_nootje` canvas is 1536×1024; the walnut itself occupies this slice.
+    static let nutImageName = "1_nootje"
+    static let nutCanvasAspect: CGFloat = 1536.0 / 1024.0
+    static let nutContentWidthFraction: CGFloat = 0.7142
+    /// Visual walnut height divided by visual width.
+    static let nutContentAspect: CGFloat = 0.7575
+    /// Five shells fill one row. Only their irregular tips cross the cell
+    /// boundary, so the bodies no longer pile visibly over one another.
+    static let nutPackScale: CGFloat = 1.02
+    /// Cap on the printed answer. Longer values keep this size as a ceiling
+    /// and shrink to fit the shell.
+    static func nutMaxTextSize(isPad: Bool) -> CGFloat { isPad ? 36 : 17 }
+    /// How much of the visible shell the answer may occupy.
+    static func nutTextWidthFraction(isPad: Bool) -> CGFloat { isPad ? 0.48 : 0.34 }
+}
+
+/// Normalised landmarks in the authored catch-bin artwork. The same PNG is
+/// drawn once as the complete bin and once through `CatchBinForegroundMask`.
+/// Keeping the landmarks here makes the nut drop and both elephant finales aim
+/// at the actual illustrated opening instead of at the old procedural crate.
+private enum CatchBinArtwork {
+    static let imageName = "NIEUWE_BAK"
+    static let sourceWidth: CGFloat = 557.0
+    static let sourceHeight: CGFloat = 1795.0
+    /// The authored artwork ends here; the remaining source rows are clear.
+    static let fullVisibleSourceHeight: CGFloat = 1638.0
+    /// Each lower score target removes one authored vertical section.
+    static let heightStep: CGFloat = 301.0
+    /// Landmarks were measured on the previous 1494 px canvas. The unchanged
+    /// opening sits 93 px higher in the newly supplied source.
+    static let previousSourceHeight: CGFloat = 1494.0
+    static let landmarkShiftY: CGFloat = 93.0
+    static let visibleMinX: CGFloat = 45.0 / 557.0
+    static let visibleMaxX: CGFloat = 495.0 / 557.0
+    static let mouthX: CGFloat = 0.43
+    static let mouthY: CGFloat = 0.215
+    static let hiddenY: CGFloat = 0.37
+    static let frontRimYAtMouth: CGFloat = 0.278
+
+    static func visibleSourceHeight(for maximumPoints: Int) -> CGFloat {
+        switch maximumPoints {
+        case 50...: return fullVisibleSourceHeight
+        case 30...: return fullVisibleSourceHeight - heightStep
+        default: return fullVisibleSourceHeight - heightStep * 2
+        }
+    }
+
+    static func scale(in rect: CGRect) -> CGFloat {
+        rect.width / sourceWidth
+    }
+
+    static func sourceY(for landmark: CGFloat) -> CGFloat {
+        previousSourceHeight * landmark - landmarkShiftY
+    }
+
+    static func y(_ landmark: CGFloat, in rect: CGRect) -> CGFloat {
+        rect.minY + scale(in: rect) * sourceY(for: landmark)
+    }
+
+    static func point(x: CGFloat, y: CGFloat, in rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.minX + rect.width * x,
+                y: self.y(y, in: rect))
+    }
+}
+
+#if canImport(UIKit)
+/// Decode claw-machine sprites once. The hanging layers and walnut PNG are
+/// large canvases; paying decompression on the first gameplay frame is a hitch.
+enum ClawArtworkCache {
+    /// The authored walnut is 1536×1024; on-screen shells are ~80–140pt.
+    static let nut: UIImage = DisplayPreparedImage.make(named: ClawConfig.nutImageName, maxPixel: 512)
+    static let catchBin: UIImage = DisplayPreparedImage.make(named: CatchBinArtwork.imageName, maxPixel: 1024)
+    static let joystickBase: UIImage = DisplayPreparedImage.make(named: "base", maxPixel: 512)
+    static let poke: UIImage = DisplayPreparedImage.make(named: "poke", maxPixel: 512)
+    static let lightArrow: UIImage = DisplayPreparedImage.make(named: "light arrow", maxPixel: 512)
+    static let grabHousing: UIImage = DisplayPreparedImage.make(named: "button3", maxPixel: 512)
+    static let grabCap: UIImage = DisplayPreparedImage.make(named: "button2", maxPixel: 512)
+    static let grabLip: UIImage = DisplayPreparedImage.make(named: "button1", maxPixel: 512)
+    static let scorePad: UIImage = DisplayPreparedImage.make(named: "score_pad", maxPixel: 384)
+
+    static func layer(_ name: String) -> UIImage {
+        CharacterArtworkCache.front(named: name)
+    }
+
+    static func prewarm(character: AnimalCharacter? = nil) {
+        _ = nut
+        _ = catchBin
+        let animal = character ?? CharacterCatalog.character(id: CharacterCatalog.freeCharacterID)
+        CharacterArtworkCache.prewarmHanging(for: animal)
+        _ = joystickBase
+        _ = poke
+        _ = lightArrow
+        _ = grabHousing
+        _ = grabCap
+        _ = grabLip
+        _ = scorePad
+    }
+}
+#endif
+
+// MARK: - Palette
+
+struct ClawPalette: Equatable {
+    let character: AnimalCharacter
+
+    // Keep the material recognisably wood and foliage, but stain every cabinet
+    // with the selected animal's colours. The old fixed brown/green treatment
+    // made changing character feel like changing only a badge.
+    var wood: Color { mix(character.primaryRGB, (0.55, 0.34, 0.16), 0.66) }
+    var woodDeep: Color { mix(character.deepRGB, (0.27, 0.14, 0.055), 0.58) }
+    var woodLight: Color { mix(character.tintRGB, (0.82, 0.60, 0.31), 0.58) }
+    var leaf: Color { mix(character.deepRGB, (0.22, 0.54, 0.19), 0.72) }
+    var leafLight: Color { mix(character.primaryRGB, (0.49, 0.79, 0.31), 0.68) }
+    var glass: Color { character.skyColor.opacity(0.35) }
+    var interior: Color { mix(character.skyRGB, (0.82, 0.86, 0.78), 0.18) }
+    var bin: Color { character.color }
+    var binDeep: Color { character.deepColor }
+    var button: Color { Color(red: 0.86, green: 0.18, blue: 0.16) }
+    var buttonDeep: Color { Color(red: 0.62, green: 0.08, blue: 0.08) }
+
+    private func mix(_ base: (Double, Double, Double),
+                     _ material: (Double, Double, Double),
+                     _ materialAmount: Double) -> Color {
+        let t = min(1, max(0, materialAmount))
+        return Color(red: base.0 + (material.0 - base.0) * t,
+                     green: base.1 + (material.1 - base.1) * t,
+                     blue: base.2 + (material.2 - base.2) * t)
+    }
+}
+
+// MARK: - Tutorial
+
+struct ClawTutorialPlan: Equatable {
+    var isActive = false
+    var wantsMove = false
+    var suppressesGrab = false
+    /// The answer ring is a teaching aid, never an always-on answer helper.
+    var highlightsCorrectNut = false
+    /// Pulse the physical controls that matter for the current instruction.
+    var highlightsJoystick = false
+    var highlightsGrab = false
+    /// Point out the two-digit score well after the first successful grab.
+    var highlightsScore = false
+    /// The timer lives in the HUD rather than this stage, but travels in the
+    /// same plan so every tutorial focus changes in one transaction.
+    var highlightsTimer = false
+}
+
+enum ClawTutorialEvent {
+    case movedClaw
+    case pressedGrab
+}
+
+// MARK: - Runtime nut
+
+struct ClawNutRuntime: Identifiable {
+    var spec: ClawNut
+    var rest: CGPoint
+    var position: CGPoint
+    var isPresent: Bool
+    var rotation: Double
+    var pixelRadius: CGFloat
+
+    var id: UUID { spec.id }
+}
+
+struct FlyingScore: Identifiable {
+    let id = UUID()
+    var start: CGPoint
+    var end: CGPoint
+    var age: Double
+    let duration: Double
+}
+
+/// A deliberately separate invalidation channel for values that change on a
+/// display-link tick. `ClawEngine.objectWillChange` is reserved for structural
+/// scene changes (phase, layout and a new puzzle), so the large static cabinet
+/// and habitat no longer re-enter SwiftUI's diffing pipeline 30–60 times a
+/// second. Only the small views observing this signal redraw every frame.
+private final class ClawFrameSignal: ObservableObject {
+    func send() { objectWillChange.send() }
+}
+
+/// Establishes a narrow observation boundary around a frame-driven fragment.
+/// The stored closure is reevaluated when `signal` fires, without invalidating
+/// the parent playfield that owns the expensive static scenery.
+private struct ClawFrameDrivenView<Content: View>: View {
+    @ObservedObject var signal: ClawFrameSignal
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+}
+
+enum ClawPhase: Equatable {
+    case idle
+    case descending
+    case grabbing
+    case ascending
+    case carrying
+    case dropping
+    case spitBack
+    case returning
+    case timeUp
+    case celebrating
+
+    /// While the walnut is physically in the elephant's hands, both belong in
+    /// front of every bin post. On release it moves back between the bin layers
+    /// so the front wall can hide the fall into the opening.
+    var heldNutIsForeground: Bool {
+        switch self {
+        case .grabbing, .ascending, .carrying:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - Engine
+
+@MainActor
+final class ClawEngine: ObservableObject {
+#if canImport(UIKit)
+    private final class DisplayLinkTarget: NSObject {
+        weak var owner: ClawEngine?
+        init(owner: ClawEngine) { self.owner = owner }
+        @objc func advance(_ displayLink: CADisplayLink) {
+            owner?.advance(displayLink)
+        }
+    }
+    private lazy var displayLinkTarget = DisplayLinkTarget(owner: self)
+    private var displayLink: CADisplayLink?
+    private var lastFrameTargetTimestamp: CFTimeInterval?
+#else
+    private var timer: Timer?
+#endif
+
+    fileprivate let frameSignal = ClawFrameSignal()
+    fileprivate let nutSignal = ClawFrameSignal()
+    fileprivate let controlSignal = ClawFrameSignal()
+    /// The sum plaque only needs frames while its reveal pulse is decaying.
+    fileprivate let hudSignal = ClawFrameSignal()
+
+    // Per-frame pose is *not* `@Published`. The dedicated `frameSignal`
+    // invalidates only the moving layers; publishing the engine itself here
+    // would make SwiftUI revisit the entire detailed cabinet every frame.
+    var trolleyX: CGFloat = 0.5
+    var trolleyY: CGFloat = ClawConfig.entranceParkY
+    var swingAngle: CGFloat = 0
+    @Published var phase: ClawPhase = .idle
+    var nuts: [ClawNutRuntime] = []
+    var heldNutID: UUID?
+    var motionClock = 0.0
+    var flyingScores: [FlyingScore] = []
+    var buttonPressed = false
+    var joystickInput: CGFloat = 0
+    /// The move one-shot stays silent while aiming. It only fires after a
+    /// committed left/right push has actually rolled the elephant a stretch,
+    /// and not again until the stick returns to rest — so fine left/right
+    /// corrections do not retrigger it.
+    private var moveSoundArmed = true
+    private var moveSoundOriginX: CGFloat?
+    private let moveSoundDeadzone: CGFloat = 0.18
+    private let moveSoundCommitInput: CGFloat = 0.72
+    private let moveSoundCommitTravel: CGFloat = 0.10
+    var elephantVisible = false
+    var elephantBodyVisible = true
+    /// The selected hanging animal. Arm reach and layer names come from its
+    /// rig, so a character switch still grabs at the right palms.
+    var hangingCharacter: AnimalCharacter = CharacterCatalog.character(id: CharacterCatalog.freeCharacterID)
+    /// False until `beginEntrance` runs, so a pile install behind the start
+    /// card cannot reveal the elephant before it is lowered in.
+    private var hasStartedEntrance = false
+    var promptPulse = 0.0
+    private(set) var highlightedNutIDs: Set<UUID> = []
+    private var lastHighCadence = true
+    private var buttonPressAge: Double?
+    private var lastPublishedTrolleyX: CGFloat = .nan
+    private var lastPublishedTrolleyY: CGFloat = .nan
+    private var lastPublishedSwing: CGFloat = .nan
+
+    /// Returns whether the nut matched the standing sum, so the claw can swallow
+    /// or spit using the same verdict that awards cards.
+    var onGrabResolved: ((ClawNut) -> Bool)?
+    var onScoreBubbleArrived: (() -> Void)?
+    var onEntranceComplete: (() -> Void)?
+    var onLevelCompletionFinished: (() -> Void)?
+    var onTimeOutFinished: (() -> Void)?
+    var onTutorialEvent: ((ClawTutorialEvent) -> Void)?
+
+    private var size: CGSize = .zero
+    private var playRect: CGRect = .zero
+    private var pileRect: CGRect = .zero
+    private var binRect: CGRect = .zero
+    private var headerRect: CGRect = .zero
+    private var panelRect: CGRect = .zero
+    private var restY: CGFloat = 0
+    private var isLive = false
+    private var isRunning = false
+    private var isPad = false
+    private var input: CGFloat = 0
+    private var swingVelocity: CGFloat = 0
+    private var lastTrolleyX: CGFloat = 0.5
+    private(set) var phaseAge: Double = 0
+    private var grabTarget: UUID?
+    private var grabStartX: CGFloat = 0.5
+    private var grabDepth: CGFloat = 0.7
+    private var grabFrom: CGPoint = .zero
+    private var descendTime = ClawConfig.descendDuration
+    private var ascendTime = ClawConfig.ascendDuration
+    private var carryTime = ClawConfig.carryDuration
+    private var returnTime = ClawConfig.returnDuration
+    private var returnFromX: CGFloat = 0.5
+    private var carryFromX: CGFloat = 0.5
+    private var dropFrom: CGPoint = .zero
+    private var dropTo: CGPoint = .zero
+    private var dropFlightTime = ClawConfig.dropDuration
+    private var trolleyMinX: CGFloat = 0.06
+    private var trolleyMaxFreeX: CGFloat = 0.72
+    private var spitFrom: CGPoint = .zero
+    private var spitTo: CGPoint = .zero
+    private var spitFlightTime = ClawConfig.spitDuration
+    private var spitStartRotation: Double = 0
+    private var spitEndRotation: Double = 0
+    private var installedSeed: UInt64?
+    private var currentTargetNutID: UUID?
+    private var currentAnswer: AnswerValue?
+    private var tutorialPlan = ClawTutorialPlan()
+    private var hasReportedMove = false
+    private var scoreTarget: CGPoint?
+    private var entranceAge: Double?
+    private var finaleAge: Double?
+    private var finaleStartX: CGFloat = 0.5
+    private var finaleStartSwing: CGFloat = 0
+    /// Extra wind-up used only when a real level finish has to travel all the
+    /// way from the answer bin. Preview and promo timing deliberately stay
+    /// unchanged so their already-approved salto remains the reference.
+    private(set) var celebrationWindUpExtension: Double = 0
+    private var reduceMotion = false
+    private var isFinalRound = false
+    private var didFinishFinale = false
+    private var hangingTapCount = 0
+    private var lastHangingTapAt: TimeInterval = 0
+    private var isPreviewingFinale = false
+    private var previewRestoreX: CGFloat = 0.5
+    private var previewRestoreSwing: CGFloat = 0
+    private var slides: [ClawPuzzle.Fall] = []
+    private var slideStart: [UUID: CGPoint] = [:]
+    private var slideEnd: [UUID: CGPoint] = [:]
+    private var slideAge: Double = 0
+    private var reversingSlides = false
+
+    /// Trailer-only: the host drives `trailerStep` at encode FPS.
+    private var trailerUsesExternalClock = false
+    /// Trailer-only: >1 compresses grab / travel time for the speed section.
+    var trailerSpeedScale: Double = 1
+    /// Trailer-only: when set, the return after a drop aims here instead of
+    /// the grab's origin, so the next nut can be lined up without a teleport.
+    var trailerReturnTargetX: CGFloat?
+    private var trailerForcedGrabID: UUID?
+
+    var acceptsGrab: Bool {
+        isLive && phase == .idle && !tutorialPlan.suppressesGrab
+    }
+
+    func layout(size: CGSize,
+                topReserve: CGFloat,
+                bottomReserve: CGFloat,
+                isPad: Bool,
+                maximumPoints: Int) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
+        self.size = size
+        self.isPad = isPad
+        let post = ClawConfig.playPostInset(size: size, isPad: isPad)
+        let headerH: CGFloat = isPad ? 76 : 52
+        let shortSide = min(size.width, size.height)
+        // The controls are authored as deep, perspective canvases. Giving the
+        // shelf a width-led height keeps their feet on the wood instead of
+        // shrinking the whole assembly into a thin toolbar on iPad.
+        let panelH: CGFloat = isPad
+            ? min(268, max(214, shortSide * 0.26))
+            : min(132, max(112, shortSide * 0.31))
+        let top = topReserve + 2
+        let headerW = min(size.width - post * 2 - (isPad ? 168 : 150),
+                          size.width * (isPad ? 0.60 : 0.50))
+        headerRect = CGRect(x: (size.width - headerW) / 2, y: top, width: headerW, height: headerH)
+        panelRect = CGRect(x: 0,
+                           y: size.height - panelH - max(bottomReserve * 0.12, 2),
+                           width: size.width,
+                           height: panelH + max(bottomReserve * 0.12, 2))
+        // iPad keeps a taller empty band above the joystick so the glass sill
+        // does not sit on the control art. Matching overlap keeps the sill
+        // seated on the shelf while the playfield ends a little higher.
+        let cabinetOverlap = panelH * (isPad ? 0.44 : 0.28)
+        playRect = CGRect(x: post,
+                          y: headerRect.maxY + (isPad ? 22 : 8),
+                          width: size.width - post * 2,
+                          height: max(180, panelRect.minY + cabinetOverlap - headerRect.maxY - (isPad ? 16 : 2)))
+        // Preserve the artwork's natural proportions. On iPad the bin sits
+        // against the inner face of the right bamboo, which is what narrows
+        // the chamber; the pile then fills that remaining width edge to edge.
+        let previousAspect = CatchBinArtwork.sourceWidth
+            / CatchBinArtwork.previousSourceHeight
+        let binW = isPad
+            ? min(playRect.width * 0.34, playRect.height * 0.95 * previousAspect)
+            : min(playRect.height * 0.56 * previousAspect, playRect.width * 0.42)
+        let binScale = binW / CatchBinArtwork.sourceWidth
+        let binSourceHeight = CatchBinArtwork.visibleSourceHeight(for: maximumPoints)
+        let binH = binSourceHeight * binScale
+        let visibleRight = isPad
+            ? playRect.maxX
+            : size.width - 1
+        binRect = CGRect(x: visibleRight
+                            - binW * CatchBinArtwork.visibleMaxX
+                            + binW * (isPad ? 0 : 0.10),
+                         y: playRect.maxY - binH,
+                         width: binW,
+                         height: binH)
+        let pileLeft = playRect.minX + playRect.width * (isPad ? 0.012 : 0.035)
+        let binVisibleLeft = binRect.minX + binW * CatchBinArtwork.visibleMinX
+        let pileRight = isPad
+            ? binVisibleLeft + binW * 0.04
+            : playRect.maxX - playRect.width * 0.19
+        pileRect = CGRect(x: pileLeft,
+                          y: playRect.minY + playRect.height * (isPad ? 0.228 : 0.22),
+                          width: max(40, pileRight - pileLeft),
+                          height: playRect.height * (isPad ? 0.772 : 0.76))
+        trolleyMinX = 0.06
+        let pileUnitRight = CGFloat((pileRect.maxX - playRect.minX) / max(playRect.width, 1))
+        let holeLeft = CGFloat((pileRight - playRect.minX) / max(playRect.width, 1))
+        trolleyMaxFreeX = min(pileUnitRight, holeLeft - 0.02)
+        if phase == .idle {
+            trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
+        }
+        restY = 0
+        relayoutNuts()
+    }
+
+    func install(puzzle: ClawPuzzle?,
+                 collected: Int,
+                 collectedIDs: [UUID] = [],
+                 question: MathQuestion?,
+                 targetNutID: UUID?) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
+        let samePile = puzzle.map { $0.seed == installedSeed } ?? false
+        let keepFinale = samePile
+            && (phase == .celebrating || phase == .timeUp)
+            && !didFinishFinale
+        if keepFinale {
+            applyQuestion(question, targetNutID: targetNutID)
+            beginPromptPulse()
+            refreshHighlights()
+            return
+        }
+        if phase == .celebrating || phase == .timeUp {
+            phase = .idle
+            phaseAge = 0
+            finaleAge = nil
+            didFinishFinale = false
+            swingAngle = 0
+            swingVelocity = 0
+            trolleyY = 0
+        }
+        if hasStartedEntrance {
+            elephantVisible = true
+            elephantBodyVisible = true
+        } else {
+            elephantVisible = false
+            trolleyY = ClawConfig.entranceParkY
+        }
+        applyQuestion(question, targetNutID: targetNutID)
+        beginPromptPulse()
+        guard let puzzle else {
+            installedSeed = nil
+            nuts = []
+            highlightedNutIDs = []
+            return
+        }
+        // Keep the live cascade. Printed numbers stay on the shells they were
+        // generated with; the next sum is chosen from whichever remaining
+        // answer is already grabable.
+        if installedSeed == puzzle.seed, nuts.contains(where: \.isPresent) {
+            refreshHighlights()
+            return
+        }
+        installedSeed = puzzle.seed
+        let remaining = collectedIDs.isEmpty
+            ? puzzle.remainingNuts(afterCollected: collected)
+            : puzzle.remainingNuts(afterGrabbing: collectedIDs)
+        nuts = remaining.map { spec in
+            let rest = screenPoint(spec.position)
+            return ClawNutRuntime(spec: spec,
+                                  rest: rest,
+                                  position: rest,
+                                  isPresent: true,
+                                  rotation: 0,
+                                  pixelRadius: ClawConfig.nutPixelRadius(unit: spec.radius,
+                                                                         pile: pileRect.size,
+                                                                         isPad: isPad))
+        }
+        refreshReachableCovering()
+        refreshHighlights()
+    }
+
+    func setQuestion(_ question: MathQuestion?,
+                     targetNutID: UUID?) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
+        applyQuestion(question, targetNutID: targetNutID)
+        beginPromptPulse()
+        refreshHighlights()
+    }
+
+    private func beginPromptPulse() {
+        promptPulse = 1
+        hudSignal.send()
+    }
+
+    /// A nil question must not wipe a standing answer. The pile can be
+    /// installed from `prepare()` before the first round is published; a late
+    /// install would otherwise spit every correct nut and skip the score.
+    private func applyQuestion(_ question: MathQuestion?,
+                               targetNutID: UUID?) {
+        if let question {
+            currentTargetNutID = targetNutID
+            currentAnswer = AnswerValue(question.correctAnswer)
+        } else if currentAnswer == nil {
+            currentTargetNutID = targetNutID
+        }
+    }
+
+    func setLive(_ live: Bool) { isLive = live }
+
+    func setCharacter(_ character: AnimalCharacter) {
+        hangingCharacter = character
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    func setReduceMotion(_ enabled: Bool) { reduceMotion = enabled }
+
+    func setFinalRound(_ isFinal: Bool) { isFinalRound = isFinal }
+
+    func setRunning(_ running: Bool) {
+        isRunning = running
+        if running {
+            startLink()
+        } else {
+            stopLink()
+            input = 0
+            joystickInput = 0
+            resetMoveSound()
+            controlSignal.send()
+        }
+    }
+
+    func setScoreTarget(_ target: CGPoint?) { scoreTarget = target }
+
+    func applyTutorial(_ plan: ClawTutorialPlan) {
+        tutorialPlan = plan
+        hasReportedMove = false
+        refreshHighlights()
+        nutSignal.send()
+    }
+
+    func setInput(_ value: CGFloat) {
+        let clamped = max(-1, min(1, value))
+        // Always snap the stick back, even if a grab started mid-drag.
+        joystickInput = clamped
+        controlSignal.send()
+        guard phase == .idle || phase == .returning else { return }
+        input = clamped
+        if phase == .idle {
+            armMoveSoundIfNeeded(input: clamped)
+        }
+        if abs(input) > 0.25, tutorialPlan.wantsMove, !hasReportedMove {
+            hasReportedMove = true
+            onTutorialEvent?(.movedClaw)
+        }
+    }
+
+    func pressGrab() {
+        guard acceptsGrab else { return }
+        onTutorialEvent?(.pressedGrab)
+        AppAudio.shared.playButtonPress()
+        buttonPressed = true
+        buttonPressAge = 0
+        controlSignal.send()
+        startGrab()
+    }
+
+    func trailerPressGrab(id: UUID) {
+        guard acceptsGrab, nuts.contains(where: { $0.id == id && $0.isPresent }) else { return }
+        trailerForcedGrabID = id
+        buttonPressed = true
+        buttonPressAge = 0
+        controlSignal.send()
+        startGrab()
+    }
+
+    func beginEntrance(completion: @escaping () -> Void) {
+        onEntranceComplete = completion
+        hasStartedEntrance = true
+        entranceAge = 0
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        elephantVisible = true
+        elephantBodyVisible = true
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    func beginLevelCompletion(reduceMotion: Bool, completion: @escaping () -> Void) {
+        self.reduceMotion = reduceMotion
+        onLevelCompletionFinished = completion
+        // Game over arrives a beat after the last nut. If the finale already
+        // started from the drop, keep travelling instead of restarting.
+        guard phase != .celebrating else { return }
+        startCelebration()
+    }
+
+    /// Five taps on the hanging animal preview the full bin salto, then return
+    /// to the pose they had. Production level-complete still uses the same path.
+    func registerHangingCharacterTap(at point: CGPoint) {
+        guard !PromoTrailerRuntime.isActive else { return }
+        guard phase == .idle, isLive, entranceAge == nil, !isPreviewingFinale else { return }
+        guard hangingCharacterContains(point) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastHangingTapAt > 1.25 {
+            hangingTapCount = 0
+        }
+        lastHangingTapAt = now
+        hangingTapCount += 1
+        guard hangingTapCount >= 5 else { return }
+        hangingTapCount = 0
+        previewRestoreX = trolleyX
+        previewRestoreSwing = swingAngle
+        isPreviewingFinale = true
+        startCelebration()
+    }
+
+    func hangingCharacterContains(_ point: CGPoint) -> Bool {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let origin = trolleyScreen
+        let radius = side * 0.50
+        let center = CGPoint(x: origin.x - radius * sin(swingAngle),
+                             y: origin.y + radius * cos(swingAngle))
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        let hit = side * 0.42
+        return dx * dx + dy * dy <= hit * hit
+    }
+
+    private func startCelebration() {
+        objectWillChange.send()
+        didFinishFinale = false
+        phase = .celebrating
+        phaseAge = 0
+        finaleAge = 0
+        heldNutID = nil
+        input = 0
+        joystickInput = 0
+        isLive = false
+        resetMoveSound()
+        finaleStartX = trolleyX
+        finaleStartSwing = swingAngle
+        if isPreviewingFinale || reduceMotion {
+            celebrationWindUpExtension = 0
+        } else {
+            // The standard 0.40 s pull feels right around the resting area.
+            // Above the bin it covers almost twice the distance, so give only
+            // that excess travel up to 0.22 s of extra runway.
+            let travel = abs(finaleStartX - celebrationLeftParkX)
+            let excessTravel = max(0, Double(travel - 0.40))
+            celebrationWindUpExtension = min(0.22, excessTravel * 0.78)
+        }
+        lastTrolleyX = trolleyX
+        trolleyY = 0
+        swingVelocity = 0
+        elephantVisible = true
+        elephantBodyVisible = true
+        frameSignal.send()
+    }
+
+    private func restorePreviewFinale() {
+        isPreviewingFinale = false
+        didFinishFinale = false
+        phase = .idle
+        phaseAge = 0
+        finaleAge = nil
+        celebrationWindUpExtension = 0
+        trolleyX = previewRestoreX
+        lastTrolleyX = previewRestoreX
+        trolleyY = 0
+        swingAngle = previewRestoreSwing
+        swingVelocity = 0
+        input = 0
+        joystickInput = 0
+        elephantVisible = true
+        elephantBodyVisible = true
+        isLive = true
+        objectWillChange.send()
+        frameSignal.send()
+        controlSignal.send()
+    }
+
+    func beginTimeUp(reduceMotion: Bool, completion: @escaping () -> Void) {
+        self.reduceMotion = reduceMotion
+        onTimeOutFinished = completion
+        guard phase != .timeUp else { return }
+        objectWillChange.send()
+        didFinishFinale = false
+        phase = .timeUp
+        phaseAge = 0
+        finaleAge = 0
+        heldNutID = nil
+        input = 0
+        resetMoveSound()
+        finaleStartX = trolleyX
+        trolleyY = 0
+        swingVelocity = 0
+        isLive = false
+        elephantVisible = true
+        elephantBodyVisible = true
+    }
+
+    func stop() {
+        stopLink()
+        onGrabResolved = nil
+        onScoreBubbleArrived = nil
+        onEntranceComplete = nil
+        onLevelCompletionFinished = nil
+        onTimeOutFinished = nil
+        onTutorialEvent = nil
+    }
+
+    // MARK: Grab
+
+    private func startGrab() {
+        let forced = trailerForcedGrabID
+        trailerForcedGrabID = nil
+        let target = forced.flatMap { id in nuts.first(where: { $0.id == id && $0.isPresent }) }
+            ?? nearestNut()
+        grabTarget = target?.id
+        grabStartX = trolleyX
+        // Lock depth on the press. Updating it from the still-settling swing
+        // made trolleyY jump whenever the pendulum passed centre.
+        grabDepth = depthToward(target)
+        descendTime = max(0.38, ClawConfig.descendDuration * Double(grabDepth))
+        ascendTime = max(0.34, ClawConfig.ascendDuration * Double(grabDepth))
+        phase = .descending
+        phaseAge = 0
+        input = 0
+        joystickInput = 0
+        resetMoveSound()
+        applyCadence()
+    }
+
+    private func depthToward(_ target: ClawNutRuntime?) -> CGFloat {
+        let elephant = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let restY = playRect.minY + ClawConfig.elephantRopeLength(isPad: isPad)
+        let span = max(90, pileRect.maxY - restY - elephant * 0.22)
+        let gripReach = elephant * hangingCharacter.hanging.gripReach
+        let targetY: CGFloat
+        if let target {
+            targetY = target.position.y
+        } else if let peak = nuts.filter(\.isPresent).map(\.position.y).min() {
+            // A miss still reaches the top of the mound, not a pinch in empty air.
+            targetY = peak
+        } else {
+            targetY = pileRect.minY + 24
+        }
+        let desiredTrolleyY = targetY - cos(swingAngle) * gripReach
+        return max(0, min(1, (desiredTrolleyY - restY) / span))
+    }
+
+    /// The walnut the player steered onto. Every animal aims first with the
+    /// hanging body (the trolley), then with its own paws / claws / tentacles /
+    /// flippers, whose rest contacts were measured per sprite. Using only the
+    /// swung centre-point made a still-swaying grab pinch air above the mound
+    /// and only land the same nut after the pendulum settled.
+    private func nearestNut() -> ClawNutRuntime? {
+        let remaining = nuts.filter(\.isPresent)
+        guard !remaining.isEmpty else { return nil }
+        let specs = remaining.map(\.spec)
+        let grabable = remaining.filter { ClawPuzzle.isGrabable($0.spec, among: specs) }
+        guard !grabable.isEmpty else { return nil }
+
+        func halfWidth(_ nut: ClawNutRuntime) -> CGFloat {
+            max(18, nut.pixelRadius * ClawConfig.nutPackScale)
+        }
+
+        func overlapping(_ aimX: CGFloat, scale: CGFloat) -> [ClawNutRuntime] {
+            grabable.filter { abs($0.position.x - aimX) < halfWidth($0) * scale }
+        }
+
+        func pick(_ pool: [ClawNutRuntime], aimX: CGFloat) -> ClawNutRuntime? {
+            pool.min { lhs, rhs in
+                let lhsDistance = abs(lhs.position.x - aimX)
+                let rhsDistance = abs(rhs.position.x - aimX)
+                if lhsDistance != rhsDistance { return lhsDistance < rhsDistance }
+                if lhs.position.y != rhs.position.y { return lhs.position.y < rhs.position.y }
+                return lhs.position.x < rhs.position.x
+            }
+        }
+
+        let rig = hangingCharacter.hanging
+        let bodyX = trolleyScreen.x
+        if let nut = pick(overlapping(bodyX, scale: 0.95), aimX: bodyX) {
+            return nut
+        }
+
+        let leftX = hangingPoint(x: rig.leftGripX, y: rig.gripReach).x
+        let rightX = hangingPoint(x: rig.rightGripX, y: rig.gripReach).x
+        let limbHits = overlapping(leftX, scale: 0.95) + overlapping(rightX, scale: 0.95)
+        if let nut = pick(limbHits, aimX: bodyX) {
+            return nut
+        }
+
+        if let nut = pick(overlapping(bodyX, scale: 1.22), aimX: bodyX) {
+            return nut
+        }
+
+        let looseLimbs = overlapping(leftX, scale: 1.22) + overlapping(rightX, scale: 1.22)
+        return pick(looseLimbs, aimX: bodyX)
+    }
+
+    // MARK: Tick
+
+#if canImport(UIKit)
+    private func advance(_ displayLink: CADisplayLink) {
+        let dt: Double
+        if let last = lastFrameTargetTimestamp {
+            dt = min(1.0 / 20.0, max(1.0 / 120.0, displayLink.targetTimestamp - last))
+        } else {
+            dt = ClawConfig.tick
+        }
+        lastFrameTargetTimestamp = displayLink.targetTimestamp
+        tick(dt: dt)
+    }
+#endif
+
+    private func tick(dt: Double) {
+        let nutsWereAnimating = heldNutID != nil || !slides.isEmpty
+        motionClock += dt
+        if promptPulse > 0 {
+            promptPulse = max(0, promptPulse - dt * 1.8)
+            hudSignal.send()
+        }
+        if let age = entranceAge {
+            let next = age + dt
+            let t = min(1, next / ClawConfig.entranceDuration)
+            let eased = 1 - pow(1 - t, 3)
+            trolleyY = ClawConfig.entranceParkY * (1 - eased)
+            swingAngle = 0.35 * cos(t * .pi * 2.2) * (1 - t)
+            entranceAge = next
+            if t >= 1 {
+                entranceAge = nil
+                trolleyY = 0
+                swingAngle = 0
+                onEntranceComplete?()
+            }
+        }
+        stepTrolley(dt: dt)
+        stepSwing(dt: dt)
+        stepPhase(dt: dt)
+        stepCascade(dt: dt)
+        stepFlights(dt: dt)
+        stepButtonPress(dt: dt)
+        applyCadence()
+        if nutsWereAnimating || heldNutID != nil || !slides.isEmpty {
+            nutSignal.send()
+        }
+        publishFrameIfNeeded()
+    }
+
+    /// The hanging pose is the only reason most of the playfield observes the
+    /// display-link. Skip that invalidation when the claw is idle and nothing
+    /// visible moved — the Reduce Motion case once the swing has settled.
+    /// Any non-idle phase still publishes: grab, carry and finales sample
+    /// `phaseAge` on the elephant even when the trolley is parked.
+    private func publishFrameIfNeeded() {
+        if phase == .idle,
+           entranceAge == nil,
+           trolleyX == lastPublishedTrolleyX,
+           trolleyY == lastPublishedTrolleyY,
+           swingAngle == lastPublishedSwing {
+            return
+        }
+        lastPublishedTrolleyX = trolleyX
+        lastPublishedTrolleyY = trolleyY
+        lastPublishedSwing = swingAngle
+        frameSignal.send()
+    }
+
+    private func stepTrolley(dt: Double) {
+        guard isLive, phase == .idle, entranceAge == nil else { return }
+        let previous = trolleyX
+        trolleyX = max(trolleyMinX, min(trolleyMaxFreeX, trolleyX + input * ClawConfig.trolleySpeed * dt))
+        lastTrolleyX = previous
+        fireMoveSoundIfTravelled()
+    }
+
+    private func stepSwing(dt: Double) {
+        guard phase != .celebrating, phase != .timeUp else { return }
+        let dtg = CGFloat(dt)
+        let velocity = (trolleyX - lastTrolleyX) / max(dtg, 0.0001)
+        swingVelocity += -velocity * ClawConfig.swingDrive * dtg
+        swingVelocity += -swingAngle * ClawConfig.swingSpring * dtg
+        swingVelocity += -swingVelocity * ClawConfig.swingDamping * dtg
+        if phase == .descending || phase == .grabbing {
+            // Kill leftover trolley sway so the hands meet the walnut
+            // without the body still drifting sideways through the pinch.
+            swingVelocity += -swingVelocity * 10 * dtg
+        }
+        if phase == .idle, abs(input) < 0.04, entranceAge == nil, !reduceMotion,
+           !PromoTrailerRuntime.isActive {
+            swingVelocity += CGFloat(sin(motionClock * 1.35)) * 0.018 * dtg
+        }
+        swingAngle += swingVelocity * dtg
+        swingAngle = max(-ClawConfig.maxSwing, min(ClawConfig.maxSwing, swingAngle))
+        lastTrolleyX = trolleyX
+    }
+
+    private func stepPhase(dt: Double) {
+        phaseAge += dt
+        switch phase {
+        case .idle:
+            break
+        case .descending:
+            let t = min(1, phaseAge / descendTime)
+            trolleyY = easeInOut(t) * grabDepth
+            if t >= 1 {
+                if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
+                    grabFrom = nuts[index].position
+                    AppAudio.shared.playTakeNut()
+                }
+                enter(.grabbing)
+            }
+        case .grabbing:
+            if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
+                heldNutID = id
+                let u = smoothStep(min(1, phaseAge / ClawConfig.grabPause))
+                nuts[index].position = lerp(grabFrom, trunkPoint, CGFloat(u))
+            }
+            if phaseAge >= ClawConfig.grabPause {
+                if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
+                    // Keep the mound still until the walnut has visibly left
+                    // its pocket. Starting the cascade at first contact made a
+                    // neighbouring walnut slide into an occupied spot while
+                    // the hands were still closing around the grabbed one.
+                    nuts[index].position = trunkPoint
+                    beginCascade(removing: nuts[index])
+                }
+                enter(.ascending)
+            }
+        case .ascending:
+            let t = min(1, phaseAge / ascendTime)
+            trolleyY = grabDepth * (1 - easeInOut(t))
+            if let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) {
+                nuts[index].position = trunkPoint
+            }
+            if t >= 1 {
+                if heldNutID == nil {
+                    enter(.returning)
+                } else {
+                    carryFromX = trolleyX
+                    let span = abs(binUnitX - carryFromX)
+                    carryTime = max(0.38, Double(span) / 0.82)
+                    enter(.carrying)
+                }
+            }
+        case .carrying:
+            let t = min(1, phaseAge / carryTime)
+            let binX = binUnitX
+            trolleyX = carryFromX + (binX - carryFromX) * easeInOut(t)
+            trolleyY = 0
+            if let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) {
+                nuts[index].position = trunkPoint
+            }
+            if t >= 1 {
+                prepareDrop()
+                AppAudio.shared.playReleaseGrip()
+                enter(.dropping)
+            }
+        case .dropping:
+            guard let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) else {
+                enter(.returning)
+                return
+            }
+            let t = min(1, phaseAge / dropFlightTime)
+            if t < 1 {
+                nuts[index].position = dropFall(t)
+            } else {
+                nuts[index].position = dropTo
+            }
+            nuts[index].rotation += dt * 0.6
+            let settle = PromoTrailerRuntime.isActive ? 0.04 : ClawConfig.dropSettle
+            if phaseAge >= dropFlightTime + settle {
+                finishDrop(index: index)
+            }
+        case .spitBack:
+            guard let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) else {
+                enter(.returning)
+                return
+            }
+            let t = min(1, phaseAge / spitFlightTime)
+            nuts[index].position = ballistic(from: spitFrom, to: spitTo, t: t, duration: spitFlightTime)
+            // Finish on an exact full turn so a rejected walnut settles back
+            // into the pile upright instead of keeping its in-flight tilt.
+            nuts[index].rotation = spitStartRotation
+                + (spitEndRotation - spitStartRotation) * Double(easeOut(t))
+            if !reversingSlides, phaseAge >= spitFlightTime - reverseHandoffLead {
+                reverseCascade()
+            }
+            if t >= 1 {
+                nuts[index].position = spitTo
+                nuts[index].rest = spitTo
+                nuts[index].rotation = 0
+                nuts[index].isPresent = true
+                heldNutID = nil
+                if !reversingSlides { reverseCascade() }
+                refreshHighlights()
+                enter(.returning)
+            }
+        case .returning:
+            let t = min(1, phaseAge / returnTime)
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, trailerReturnTargetX ?? grabStartX))
+            trolleyX = returnFromX + (target - returnFromX) * easeInOut(t)
+            trolleyY = 0
+            if t >= 1 {
+                trolleyX = target
+                enter(.idle)
+            }
+        case .timeUp:
+            stepTimeUp(dt: dt)
+        case .celebrating:
+            stepCelebration(dt: dt)
+        }
+    }
+
+    private func finishDrop(index: Int) {
+        let nut = nuts[index].spec
+        let correct = onGrabResolved?(nut)
+            ?? (currentAnswer.map { AnswerValue(nut.text) == $0 } ?? false)
+        if correct {
+            nuts[index].isPresent = false
+            heldNutID = nil
+            commitCascade()
+            refreshHighlights()
+            onScoreBubbleArrived?()
+            if isFinalRound {
+                beginLevelCompletion(reduceMotion: reduceMotion,
+                                     completion: onLevelCompletionFinished ?? {})
+            } else {
+                enter(.returning)
+            }
+        } else {
+            spitFrom = binMouth
+            spitTo = nuts[index].rest
+            nuts[index].position = spitFrom
+            spitFlightTime = flightTime(from: spitFrom, to: spitTo)
+            spitStartRotation = nuts[index].rotation
+            let fullTurn = Double.pi * 2
+            var uprightTurn = ceil(spitStartRotation / fullTurn) * fullTurn
+            if uprightTurn - spitStartRotation < Double.pi {
+                uprightTurn += fullTurn
+            }
+            spitEndRotation = uprightTurn
+            enter(.spitBack)
+        }
+    }
+
+    private func prepareDrop() {
+        guard let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) else { return }
+        dropFrom = nuts[index].position
+        dropTo = binShaft
+        let fall = max(36, dropTo.y - dropFrom.y)
+        dropFlightTime = Double(sqrt(2 * fall / ClawConfig.dropGravity))
+    }
+
+    /// Released from rest above the crate: straight down, accelerating.
+    private func dropFall(_ t: Double) -> CGPoint {
+        let elapsed = CGFloat(t) * CGFloat(max(dropFlightTime, 0.01))
+        let y = dropFrom.y + 0.5 * ClawConfig.dropGravity * elapsed * elapsed
+        let x = dropFrom.x + (dropTo.x - dropFrom.x) * CGFloat(min(1, t * 1.35))
+        return CGPoint(x: x, y: min(y, dropTo.y))
+    }
+
+    private func flightTime(from: CGPoint, to: CGPoint) -> Double {
+        let travel = hypot(to.x - from.x, to.y - from.y)
+        return min(1.35, max(0.92, Double(travel) / 360.0))
+    }
+
+    private func ballistic(from: CGPoint, to: CGPoint, t: Double, duration: Double) -> CGPoint {
+        let duration = CGFloat(max(duration, 0.01))
+        let elapsed = CGFloat(t) * duration
+        let gravity: CGFloat = 2050
+        let vx = (to.x - from.x) / duration
+        let vy0 = (to.y - from.y) / duration - 0.5 * gravity * duration
+        return CGPoint(x: from.x + vx * elapsed,
+                       y: from.y + vy0 * elapsed + 0.5 * gravity * elapsed * elapsed)
+    }
+
+    private func stepTimeUp(dt: Double) {
+        let move = smoothStep(min(1, phaseAge / 0.48))
+        trolleyX = finaleStartX + (binUnitX - finaleStartX) * CGFloat(move)
+        trolleyY = 0
+        swingAngle = CGFloat(sin(move * .pi)) * 0.10 * (1 - CGFloat(move))
+        lastTrolleyX = trolleyX
+        if phaseAge >= ClawConfig.timeUpDuration {
+            elephantBodyVisible = false
+            if !didFinishFinale {
+                didFinishFinale = true
+                onTimeOutFinished?()
+            }
+        }
+    }
+
+    /// Far-left hook pose: the hanging silhouette stays just inside the glass.
+    /// The throw to the right starts from this same point, so the salto has
+    /// the full chamber to fly through.
+    private var celebrationLeftParkX: CGFloat {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let angle = reduceMotion ? 0 : ClawConfig.celebrationLeftAngle
+        let sine = CGFloat(sin(Double(angle)))
+        let cosine = CGFloat(cos(Double(angle)))
+        let inset: CGFloat = isPad ? 16 : 10
+        let leftOfHook = side * 0.50 * sine + side * 0.30 * cosine
+        let hookX = playRect.minX + inset + leftOfHook
+        let unit = CGFloat((hookX - playRect.minX) / max(playRect.width, 1))
+        return min(0.42, max(trolleyMinX, unit))
+    }
+
+    private func celebrationTrolleyX(at age: Double) -> CGFloat {
+        let left = celebrationLeftParkX
+        if reduceMotion {
+            return left
+        }
+        let arrival = ClawConfig.celebrationParkArrival + celebrationWindUpExtension
+        if age < arrival {
+            let p = min(1, max(0, age / arrival))
+            // A level finish starts above the bin and gets a zero-velocity
+            // departure. The short preview retains the snappier cubic ease.
+            let ease = celebrationWindUpExtension > 0
+                ? p * p * (3 - 2 * p)
+                : 1 - pow(1 - p, 3)
+            return finaleStartX + (left - finaleStartX) * CGFloat(ease)
+        }
+        return left
+    }
+
+    private func stepCelebration(dt: Double) {
+        let releaseAngle = ClawConfig.celebrationReleaseAngle
+        let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
+        trolleyX = celebrationTrolleyX(at: phaseAge)
+
+        if reduceMotion {
+            swingAngle = 0
+        } else if phaseAge < releaseAge {
+            swingAngle = ClawConfig.celebrationPendulumAngle(
+                age: phaseAge,
+                startSwing: finaleStartSwing,
+                windUpExtension: celebrationWindUpExtension
+            )
+        } else {
+            let recoil = smoothStep(min(1, (phaseAge - releaseAge) / 0.22))
+            // Only the empty claw settles after it lets go.
+            swingAngle = releaseAngle * (1 - CGFloat(recoil))
+        }
+        trolleyY = 0
+        lastTrolleyX = trolleyX
+
+        if phaseAge >= ClawConfig.completionDuration + celebrationWindUpExtension {
+            if isPreviewingFinale {
+                restorePreviewFinale()
+                return
+            }
+            elephantBodyVisible = false
+            if !didFinishFinale {
+                didFinishFinale = true
+                onLevelCompletionFinished?()
+            }
+        }
+    }
+
+    private func stepFlights(dt: Double) {
+        guard !flyingScores.isEmpty else { return }
+        for i in flyingScores.indices {
+            flyingScores[i].age += dt
+        }
+        let finished = flyingScores.filter { $0.age >= $0.duration }
+        flyingScores.removeAll { $0.age >= $0.duration }
+        if !finished.isEmpty {
+            onScoreBubbleArrived?()
+        }
+    }
+
+    private func resetMoveSound() {
+        moveSoundArmed = true
+        moveSoundOriginX = nil
+    }
+
+    private func armMoveSoundIfNeeded(input: CGFloat) {
+        if abs(input) <= moveSoundDeadzone {
+            resetMoveSound()
+            return
+        }
+        guard moveSoundArmed, abs(input) >= moveSoundCommitInput else { return }
+        if moveSoundOriginX == nil {
+            moveSoundOriginX = trolleyX
+        }
+    }
+
+    private func fireMoveSoundIfTravelled() {
+        guard moveSoundArmed, let origin = moveSoundOriginX else { return }
+        guard abs(trolleyX - origin) >= moveSoundCommitTravel else { return }
+        moveSoundArmed = false
+        moveSoundOriginX = nil
+        AppAudio.shared.playMove()
+    }
+
+    private func enter(_ next: ClawPhase) {
+        phase = next
+        phaseAge = 0
+        if next == .idle {
+            trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
+            refreshHighlights()
+            armMoveSoundIfNeeded(input: input)
+            if PromoTrailerRuntime.isActive {
+                input = 0
+                joystickInput = 0
+            }
+        }
+        if next == .returning {
+            returnFromX = trolleyX
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, trailerReturnTargetX ?? grabStartX))
+            returnTime = max(0.26, Double(abs(target - returnFromX)) / 0.95)
+        }
+    }
+
+    private func stepButtonPress(dt: Double) {
+        guard let age = buttonPressAge else { return }
+        let next = age + dt
+        if next >= 0.28 {
+            buttonPressed = false
+            buttonPressAge = nil
+            controlSignal.send()
+        } else {
+            buttonPressAge = next
+        }
+    }
+
+    private func refreshReachableCovering() {
+        var specs = nuts.map(\.spec)
+        for i in specs.indices {
+            specs[i].position = unitPoint(nuts[i].rest)
+        }
+        _ = specs
+    }
+
+    private func beginCascade(removing grabbed: ClawNutRuntime) {
+        let present = nuts.filter(\.isPresent).map(\.spec)
+        slides = ClawPuzzle.fallChain(removing: grabbed.spec, among: present)
+        reversingSlides = false
+        slideAge = 0
+        slideStart = [:]
+        slideEnd = [:]
+        for fall in slides {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }) else { continue }
+            let from = nuts[i].rest
+            let to = screenPoint(fall.to)
+            slideStart[fall.id] = from
+            slideEnd[fall.id] = to
+            nuts[i].rest = to
+            nuts[i].spec.position = fall.to
+        }
+    }
+
+    private func stepCascade(dt: Double) {
+        guard !slides.isEmpty else { return }
+        slideAge += dt
+        var allDone = true
+        for (index, fall) in slides.enumerated() {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }),
+                  heldNutID != fall.id else { continue }
+            let delay = Double(index) * ClawConfig.cascadeStagger
+            let t = min(1, max(0, (slideAge - delay) / ClawConfig.cascadeDuration))
+            if t < 1 { allDone = false }
+            let from = slideStart[fall.id] ?? nuts[i].position
+            let to = slideEnd[fall.id] ?? nuts[i].rest
+            nuts[i].position = lerp(from, to, easeInOut(t))
+        }
+        if allDone, reversingSlides {
+            slides = []
+            reversingSlides = false
+            slideStart = [:]
+            slideEnd = [:]
+        }
+    }
+
+    private func reverseCascade() {
+        guard !slides.isEmpty, !reversingSlides else { return }
+        reversingSlides = true
+        slideAge = 0
+        for fall in slides.reversed() {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }) else { continue }
+            slideStart[fall.id] = nuts[i].position
+            let original = screenPoint(fall.from)
+            slideEnd[fall.id] = original
+            nuts[i].rest = original
+            nuts[i].spec.position = fall.from
+        }
+        slides.reverse()
+        refreshHighlights()
+    }
+
+    /// Start reversing early enough that the nut sitting in the vacated hole
+    /// is halfway home as the spit nut lands — a handoff, not a stack.
+    private var reverseHandoffLead: Double {
+        let occupantDelay = Double(max(slides.count - 1, 0)) * ClawConfig.cascadeStagger
+        return occupantDelay + ClawConfig.cascadeDuration * 0.5
+    }
+
+    private func commitCascade() {
+        slides = []
+        reversingSlides = false
+        slideStart = [:]
+        slideEnd = [:]
+    }
+
+    func unitPoint(_ screen: CGPoint) -> ClawPoint {
+        let scale = max(pileRect.width, 1)
+        return ClawPoint(x: Double((screen.x - pileRect.minX) / scale),
+                         y: Double(1 - (pileRect.maxY - screen.y) / scale))
+    }
+
+    private func relayoutNuts() {
+        for i in nuts.indices {
+            let rest = screenPoint(nuts[i].spec.position)
+            nuts[i].rest = rest
+            if heldNutID != nuts[i].id, slideStart[nuts[i].id] == nil {
+                nuts[i].position = rest
+            }
+            nuts[i].pixelRadius = ClawConfig.nutPixelRadius(unit: nuts[i].spec.radius,
+                                                            pile: pileRect.size,
+                                                            isPad: isPad)
+        }
+    }
+
+    func screenPoint(_ unit: ClawPoint) -> CGPoint {
+        // Pack in width-pixels on both axes so hex spacing stays round. The
+        // mound sits on the floor of the pile; extra glass height stays empty
+        // for the hanging elephant.
+        let scale = pileRect.width
+        return CGPoint(x: pileRect.minX + scale * CGFloat(unit.x),
+                       y: pileRect.maxY - scale * CGFloat(1 - unit.y))
+    }
+
+    var trolleyScreen: CGPoint {
+        let elephant = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let restY = playRect.minY + ClawConfig.elephantRopeLength(isPad: isPad)
+        let span = max(90, pileRect.maxY - restY - elephant * 0.22)
+        return CGPoint(x: playRect.minX + playRect.width * trolleyX,
+                       y: restY + trolleyY * span)
+    }
+
+    var trunkPoint: CGPoint {
+        hangingPoint(x: 0.5, y: hangingCharacter.hanging.gripReach)
+    }
+
+    /// A point on the hanging canvas, in screen space. `(0.5, 0)` is the hook;
+    /// y grows down the body. Matches the sprite's swing around the attachment.
+    private func hangingPoint(x: CGFloat, y: CGFloat) -> CGPoint {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let origin = trolleyScreen
+        let dx = (x - 0.5) * side
+        let dy = y * side
+        let cosine = cos(swingAngle)
+        let sine = sin(swingAngle)
+        // Screen-space rotation and a mathematical y-up rotation lean in
+        // opposite horizontal directions. Follow the rendered limbs so a
+        // walnut cannot drift to the other side of a swinging body.
+        return CGPoint(x: origin.x + dx * cosine - dy * sine,
+                       y: origin.y + dx * sine + dy * cosine)
+    }
+
+    private func refreshHighlights() {
+        guard tutorialPlan.highlightsCorrectNut, let currentAnswer else {
+            highlightedNutIDs = []
+            return
+        }
+        let remaining = nuts.filter(\.isPresent)
+        let specs = remaining.map(\.spec)
+        highlightedNutIDs = Set(remaining.compactMap { nut in
+            AnswerValue(nut.spec.text) == currentAnswer
+                && ClawPuzzle.isGrabable(nut.spec, among: specs) ? nut.id : nil
+        })
+    }
+
+    /// Centre of the open top — the chute mouth the nut must enter and leave.
+    private var binMouth: CGPoint {
+        CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
+                              y: CatchBinArtwork.mouthY,
+                              in: binRect)
+    }
+
+    /// Just below the rim, inside the shaft, where the front wall hides the nut.
+    private var binShaft: CGPoint {
+        CGPoint(x: binMouth.x,
+                y: CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: binRect))
+    }
+
+    private var binUnitX: CGFloat {
+        CGFloat((binMouth.x - playRect.minX) / max(playRect.width, 1))
+    }
+
+    var geometry: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect) {
+        (playRect, pileRect, binRect, headerRect, panelRect)
+    }
+
+    // MARK: Promo trailer control
+
+    func trailerPrepareDeterministicSession() {
+        trailerUsesExternalClock = true
+        trailerSpeedScale = 1
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = nil
+        stopLink()
+    }
+
+    func trailerParkForEntrance(x: CGFloat) {
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        lastTrolleyX = trolleyX
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = nil
+        phase = .idle
+        phaseAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    func trailerBeginEntrance() {
+        guard entranceAge == nil else { return }
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    var trailerHasLanded: Bool {
+        entranceAge == nil && trolleyY > -0.04
+    }
+
+    var trailerIsOverBin: Bool {
+        trolleyX >= trolleyMaxFreeX - 0.10
+    }
+
+    /// True while a held nut is parked over the answer mouth, just before the drop.
+    var trailerIsHangingOverBin: Bool {
+        guard heldNutID != nil, phase == .carrying else { return false }
+        return abs(trolleyX - binUnitX) <= 0.055
+    }
+
+    func trailerCollapseToPyramid(keeping ids: [UUID], positions: [ClawPoint]) {
+        let keep = Set(ids)
+        for i in nuts.indices {
+            if !keep.contains(nuts[i].id) {
+                nuts[i].isPresent = false
+            }
+        }
+        for (offset, id) in ids.enumerated() {
+            guard offset < positions.count,
+                  let index = nuts.firstIndex(where: { $0.id == id }) else { continue }
+            nuts[index].spec.position = positions[offset]
+            nuts[index].isPresent = true
+            nuts[index].rest = screenPoint(positions[offset])
+            nuts[index].position = nuts[index].rest
+            nuts[index].rotation = 0
+        }
+        objectWillChange.send()
+        nutSignal.send()
+        frameSignal.send()
+    }
+
+    func trailerEnableExternalClock() {
+        trailerUsesExternalClock = true
+        stopLink()
+    }
+
+    func trailerStep(dt: Double) {
+        tick(dt: dt * max(0.35, trailerSpeedScale))
+    }
+
+    func trailerRevealAtRest(x: CGFloat) {
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        lastTrolleyX = trolleyX
+        trolleyY = 0
+        swingAngle = 0
+        swingVelocity = 0
+        entranceAge = nil
+        phase = .idle
+        phaseAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+        nutSignal.send()
+        controlSignal.send()
+    }
+
+    var trailerPhase: ClawPhase { phase }
+    var trailerPhaseAge: TimeInterval { phaseAge }
+    var trailerTrolleyX: CGFloat { trolleyX }
+    var trailerTrolleyMinX: CGFloat { trolleyMinX }
+    var trailerTrolleyMaxX: CGFloat { trolleyMaxFreeX }
+    var trailerPlayfieldSize: CGSize { size }
+    var trailerHeaderMaxY: CGFloat { headerRect.maxY }
+    var trailerPanelMinY: CGFloat { panelRect.minY }
+    var trailerIsReadyToGrab: Bool { acceptsGrab }
+
+    func trailerNutTrolleyX(id: UUID) -> CGFloat? {
+        guard let nut = nuts.first(where: { $0.id == id && $0.isPresent }) else { return nil }
+        let width = max(playRect.width, 1)
+        return (nut.rest.x - playRect.minX) / width
+    }
+
+    var trailerPileSettled: Bool { slides.isEmpty }
+
+    var trailerCelebrationWindUp: Double { celebrationWindUpExtension }
+
+    /// True when leftover trolley swing has damped enough to drop straight.
+    var trailerIsUpright: Bool {
+        abs(swingAngle) < 0.045 && abs(swingVelocity) < 0.14
+    }
+
+    /// Far enough from upright that an "wait until straight" timer should restart.
+    var trailerShouldResetUprightWait: Bool {
+        abs(swingAngle) > 0.08 || abs(swingVelocity) > 0.28
+    }
+
+    func trailerPresentNutIDs() -> [UUID] {
+        nuts.filter(\.isPresent).map(\.id)
+    }
+
+    /// Park exactly over a nut. Leftover swing is left to damp so the body
+    /// visibly hangs straight before the next drop, instead of popping upright.
+    func trailerSnapOver(id: UUID) {
+        guard let x = trailerNutTrolleyX(id: id) else { return }
+        let clamped = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        let moved = abs(trolleyX - clamped) > 0.0004
+        trolleyX = clamped
+        lastTrolleyX = trolleyX
+        input = 0
+        joystickInput = 0
+        if moved {
+            objectWillChange.send()
+            frameSignal.send()
+        }
+    }
+
+    private func startLink() {
+        // The App Store teaser host ticks the engine at encode FPS so motion
+        // stays deterministic. A parallel display-link would double-step.
+        if PromoTrailerRuntime.isActive { return }
+#if canImport(UIKit)
+        guard displayLink == nil else { return }
+        lastFrameTargetTimestamp = nil
+        lastHighCadence = true
+        let link = CADisplayLink(target: displayLinkTarget,
+                                 selector: #selector(DisplayLinkTarget.advance(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+#else
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: ClawConfig.tick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick(dt: ClawConfig.tick) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+#endif
+    }
+
+    private func stopLink() {
+#if canImport(UIKit)
+        displayLink?.invalidate()
+        displayLink = nil
+        lastFrameTargetTimestamp = nil
+        lastHighCadence = true
+        lastPublishedTrolleyX = .nan
+        lastPublishedTrolleyY = .nan
+        lastPublishedSwing = .nan
+#else
+        timer?.invalidate()
+        timer = nil
+#endif
+    }
+
+    private var wantsHighCadence: Bool {
+        if reduceMotion,
+           phase == .idle,
+           entranceAge == nil,
+           finaleAge == nil,
+           slides.isEmpty,
+           flyingScores.isEmpty,
+           promptPulse <= 0,
+           abs(input) < 0.04,
+           abs(swingAngle) < 0.004,
+           abs(swingVelocity) < 0.01 {
+            return false
+        }
+        return isLive || phase != .idle || entranceAge != nil || finaleAge != nil
+    }
+
+    private func applyCadence() {
+#if canImport(UIKit)
+        guard let displayLink else { return }
+        let high = wantsHighCadence
+        guard high != lastHighCadence else { return }
+        lastHighCadence = high
+        displayLink.preferredFrameRateRange = high
+            ? CAFrameRateRange(minimum: 60, maximum: 120, preferred: 60)
+            : CAFrameRateRange(minimum: 20, maximum: 30, preferred: 24)
+#endif
+    }
+
+    private func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+        CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+    }
+
+    private func easeIn(_ t: Double) -> CGFloat { CGFloat(t * t) }
+    private func easeOut(_ t: Double) -> CGFloat { CGFloat(1 - (1 - t) * (1 - t)) }
+    private func easeInOut(_ t: Double) -> CGFloat {
+        CGFloat(t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
+    }
+    private func smoothStep(_ value: Double) -> Double {
+        let t = min(1, max(0, value))
+        return t * t * (3 - 2 * t)
+    }
+}
+
+// MARK: - Playfield
+
+struct ClawPlayfield: View {
+    /// Drives an initial puzzle installation as well as later rebuilds. Unlike
+    /// `onChange`, a task also runs when the puzzle finished preparing in the
+    /// narrow window between this view's first render and `onAppear`. The round
+    /// id is included so a pile installed before the first sum is published
+    /// still receives that standing answer.
+    private struct InstallationID: Equatable {
+        let seed: UInt64?
+        let roundID: UUID?
+    }
+
+    let round: GameRound?
+    let puzzle: ClawPuzzle?
+    let collectedAnswers: Int
+    var collectedNutIDs: [UUID] = []
+    let maximumRounds: Int
+    let character: AnimalCharacter
+    let isPad: Bool
+    let isLive: Bool
+    let isRunning: Bool
+    let playsEntrance: Bool
+    let isStreakBoostActive: Bool
+    let playsLevelCompletion: Bool
+    let playsTimeOutFinale: Bool
+    let reduceMotion: Bool
+    var isFinalRound = false
+    var tutorialPlan = ClawTutorialPlan()
+    let score: Int
+    let topReserve: CGFloat
+    let bottomReserve: CGFloat
+    let scoreTarget: CGPoint?
+    let onGrab: (ClawNut) -> Bool
+    let onScoreBubbleArrived: () -> Void
+    let onEntranceComplete: () -> Void
+    let onLevelCompletionFinished: () -> Void
+    let onTimeOutFinished: () -> Void
+    var onTutorialEvent: (ClawTutorialEvent) -> Void = { _ in }
+    var onEngineReady: (ClawEngine) -> Void = { _ in }
+
+    @StateObject private var engine = ClawEngine()
+    @State private var didTriggerScreenGrab = false
+
+    private var palette: ClawPalette { ClawPalette(character: character) }
+    private var installationID: InstallationID {
+        InstallationID(seed: puzzle?.seed, roundID: round?.id)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack(alignment: .topLeading) {
+                MachineCabinet(palette: palette, size: size, isPad: isPad)
+                    .equatable()
+
+                let geo = engine.geometry
+                CabinetTopAssembly(
+                    palette: palette,
+                    size: size,
+                    header: geo.header,
+                    playTop: geo.play.minY,
+                    isPad: isPad,
+                    prompt: PromoTrailerRuntime.isActive ? (round?.question.prompt ?? "") : ""
+                )
+                .equatable()
+
+                CabinetLivingDetails(palette: palette,
+                                     reduceMotion: reduceMotion,
+                                     isActive: isRunning)
+
+                glassChamber(geo: geo)
+
+                CatchBinBackView(accentColor: palette.character.color)
+                    .equatable()
+                    .frame(width: geo.bin.width, height: geo.bin.height)
+                    .position(x: geo.bin.midX, y: geo.bin.midY)
+
+                binLowerContinuation(geo: geo, size: size)
+
+                if !engine.phase.heldNutIsForeground {
+                    ClawFrameDrivenView(signal: engine.nutSignal) {
+                        ClawNutPile(
+                            nuts: engine.nuts,
+                            highlightedIDs: engine.highlightedNutIDs,
+                            heldNutID: engine.heldNutID,
+                            // After release the walnut must pass behind the
+                            // bin's front rim, but it still belongs in front of
+                            // the cabinet posts. A chamber-sized Canvas clipped
+                            // it at the right bamboo edge and made it appear to
+                            // jump behind that post as soon as `.dropping`
+                            // started.
+                            playOrigin: .zero,
+                            selection: .held,
+                            isPad: isPad
+                        )
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .position(x: size.width / 2, y: size.height / 2)
+                }
+
+                CatchBinFrontView(accentColor: palette.character.color)
+                    .equatable()
+                    .frame(width: geo.bin.width, height: geo.bin.height)
+                    .position(x: geo.bin.midX, y: geo.bin.midY)
+
+                foregroundSillContinuation(geo: geo)
+
+                // The mound itself belongs fully in the foreground. A released
+                // walnut still uses the separate held layer above so it alone
+                // can pass behind the bin's front wall during the drop.
+                ClawFrameDrivenView(signal: engine.nutSignal) {
+                    ClawNutPile(
+                        nuts: engine.nuts,
+                        highlightedIDs: engine.highlightedNutIDs,
+                        heldNutID: engine.heldNutID,
+                        playOrigin: CGPoint(x: geo.play.minX, y: geo.play.minY),
+                        selection: .resting,
+                        isPad: isPad
+                    )
+                }
+                .frame(width: geo.play.width, height: geo.play.height)
+                .position(x: geo.play.midX, y: geo.play.midY)
+
+                if engine.phase.heldNutIsForeground {
+                    ClawFrameDrivenView(signal: engine.nutSignal) {
+                        ClawNutPile(
+                            nuts: engine.nuts,
+                            highlightedIDs: engine.highlightedNutIDs,
+                            heldNutID: engine.heldNutID,
+                            // Use the complete stage as the foreground canvas. A
+                            // play-rect-sized Canvas clips the carried walnut at
+                            // the cabinet's right post even when its layer is above
+                            // that post.
+                            playOrigin: .zero,
+                            selection: .held,
+                            isPad: isPad
+                        )
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .position(x: size.width / 2, y: size.height / 2)
+                }
+
+                hangingCharacterLayer(size: size, bin: geo.bin)
+
+                if engine.phase == .celebrating || engine.phase == .timeUp {
+                    finaleBinForeground(geo: geo)
+                }
+
+                if isPad, !PromoTrailerRuntime.isActive {
+                    cabinetInnerRim(geo: geo)
+                }
+
+                if !PromoTrailerRuntime.isActive {
+                    promptPlaqueLayer(geo: geo)
+                }
+
+                let controlSafeTop = geo.panel.height > 1
+                    ? max(0, geo.panel.minY - ClawConfig.controlSafetyMargin(isPad: isPad))
+                    : size.height
+                playfieldTouchLayer(size: size, bottomInset: size.height - controlSafeTop)
+                pokeSafetyZone(size: size, top: controlSafeTop)
+                grabSafetyZone(size: size, top: controlSafeTop)
+
+                controlPanel
+                    .frame(width: geo.panel.width, height: geo.panel.height)
+                    .position(x: geo.panel.midX, y: geo.panel.midY)
+            }
+            .frame(width: size.width, height: size.height)
+            .environment(\.layoutDirection, .leftToRight)
+            .onAppear {
+                bindEngine()
+                engine.layout(size: size,
+                              topReserve: topReserve,
+                              bottomReserve: bottomReserve,
+                              isPad: isPad,
+                              maximumPoints: maximumRounds)
+                engine.install(puzzle: puzzle,
+                               collected: collectedAnswers,
+                               collectedIDs: collectedNutIDs,
+                               question: round?.question,
+                               targetNutID: round?.targetNutID)
+                engine.setLive(isLive)
+                if !PromoTrailerRuntime.isActive {
+                    engine.setCharacter(character)
+                }
+                engine.setRunning(isRunning)
+                engine.setScoreTarget(scoreTarget)
+                engine.setReduceMotion(reduceMotion)
+                engine.setFinalRound(isFinalRound)
+                engine.applyTutorial(tutorialPlan)
+                if playsEntrance {
+                    engine.beginEntrance(completion: onEntranceComplete)
+                }
+                if playsLevelCompletion {
+                    engine.beginLevelCompletion(reduceMotion: reduceMotion,
+                                                completion: onLevelCompletionFinished)
+                }
+                if playsTimeOutFinale {
+                    engine.beginTimeUp(reduceMotion: reduceMotion,
+                                       completion: onTimeOutFinished)
+                }
+                onEngineReady(engine)
+            }
+            .onChange(of: size) { _, newSize in
+                engine.layout(size: newSize,
+                              topReserve: topReserve,
+                              bottomReserve: bottomReserve,
+                              isPad: isPad,
+                              maximumPoints: maximumRounds)
+            }
+            .onChange(of: maximumRounds) { _, points in
+                engine.layout(size: size,
+                              topReserve: topReserve,
+                              bottomReserve: bottomReserve,
+                              isPad: isPad,
+                              maximumPoints: points)
+            }
+        }
+        // Run once for the initial value too. On slower devices the prepared
+        // puzzle and first round can each arrive between the first body
+        // evaluation and `onAppear`; relying only on edge-triggered `onChange`
+        // callbacks can then leave either the pile or its standing answer nil.
+        .task(id: installationID) {
+            engine.install(puzzle: puzzle,
+                           collected: collectedAnswers,
+                           collectedIDs: collectedNutIDs,
+                           question: round?.question,
+                           targetNutID: round?.targetNutID)
+        }
+        .onChange(of: round?.id) {
+            engine.setQuestion(round?.question,
+                               targetNutID: round?.targetNutID)
+        }
+        .onChange(of: isLive) { _, live in engine.setLive(live) }
+        .onChange(of: character.id) {
+            guard !PromoTrailerRuntime.isActive else { return }
+            engine.setCharacter(character)
+        }
+        .onChange(of: isRunning) { _, running in engine.setRunning(running) }
+        .onChange(of: scoreTarget) { _, target in engine.setScoreTarget(target) }
+        .onChange(of: reduceMotion) { _, enabled in engine.setReduceMotion(enabled) }
+        .onChange(of: isFinalRound) { _, isFinal in engine.setFinalRound(isFinal) }
+        .onChange(of: tutorialPlan) { _, plan in engine.applyTutorial(plan) }
+        .onChange(of: playsEntrance) { _, should in
+            if should { engine.beginEntrance(completion: onEntranceComplete) }
+        }
+        .onChange(of: playsLevelCompletion) { _, should in
+            if should {
+                engine.beginLevelCompletion(reduceMotion: reduceMotion,
+                                            completion: onLevelCompletionFinished)
+            }
+        }
+        .onChange(of: playsTimeOutFinale) { _, should in
+            if should {
+                engine.beginTimeUp(reduceMotion: reduceMotion,
+                                   completion: onTimeOutFinished)
+            }
+        }
+        .onDisappear { engine.stop() }
+        .ignoresSafeArea()
+    }
+
+    private func bindEngine() {
+        engine.setCharacter(character)
+        engine.onGrabResolved = onGrab
+        engine.onScoreBubbleArrived = onScoreBubbleArrived
+        engine.onEntranceComplete = onEntranceComplete
+        engine.onLevelCompletionFinished = onLevelCompletionFinished
+        engine.onTimeOutFinished = onTimeOutFinished
+        engine.onTutorialEvent = onTutorialEvent
+    }
+
+    private func commitGrab() {
+        engine.setCharacter(character)
+        engine.pressGrab()
+    }
+
+    /// Hold the left half to steer left, the right half to steer right, or swipe
+    /// down anywhere to drop the claw where it currently hangs. Stops above the
+    /// poke / grab safety band so the bottom nut row cannot steal those controls.
+    private func playfieldTouchLayer(size: CGSize, bottomInset: CGFloat) -> some View {
+        Color.clear
+            .frame(width: size.width, height: max(0, size.height - bottomInset))
+            .contentShape(Rectangle())
+            .gesture(playfieldDrag(width: size.width))
+            .accessibilityHidden(true)
+    }
+
+    /// Bottom-left band, including the lowest nuts: poke left / right, never
+    /// "left half of the screen".
+    private func pokeSafetyZone(size: CGSize, top: CGFloat) -> some View {
+        let width = min(ClawConfig.pokeSafetyWidth(isPad: isPad), size.width * 0.48)
+        let height = max(0, size.height - top)
+        return Color.clear
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .gesture(joystickDrag(width: width))
+            .position(x: width / 2, y: top + height / 2)
+            .accessibilityHidden(true)
+    }
+
+    /// Bottom-right band: treat as the grab button, not screen-right.
+    private func grabSafetyZone(size: CGSize, top: CGFloat) -> some View {
+        let width = min(ClawConfig.grabSafetyWidth(isPad: isPad), size.width * 0.48)
+        let height = max(0, size.height - top)
+        return Color.clear
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .gesture(grabSafetyDrag)
+            .position(x: size.width - width / 2, y: top + height / 2)
+            .accessibilityHidden(true)
+    }
+
+    private var grabSafetyDrag: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onEnded { value in
+                guard !isDownwardSwipe(value) else { return }
+                commitGrab()
+            }
+    }
+
+    private func playfieldDrag(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if isDownwardSwipe(value) {
+                    triggerScreenGrab()
+                    return
+                }
+                let travel = hypot(value.translation.width, value.translation.height)
+                if travel < 24, engine.hangingCharacterContains(value.startLocation) {
+                    return
+                }
+                engine.setInput(value.location.x < width / 2 ? -1 : 1)
+            }
+            .onEnded { value in
+                if !didTriggerScreenGrab, isDownwardSwipe(value) {
+                    triggerScreenGrab()
+                }
+                didTriggerScreenGrab = false
+                engine.setInput(0)
+                let travel = hypot(value.translation.width, value.translation.height)
+                if travel < 24 {
+                    engine.registerHangingCharacterTap(at: value.startLocation)
+                }
+            }
+    }
+
+    private func triggerScreenGrab() {
+        guard !didTriggerScreenGrab else { return }
+        didTriggerScreenGrab = true
+        engine.setInput(0)
+        commitGrab()
+    }
+
+    private func isDownwardSwipe(_ value: DragGesture.Value) -> Bool {
+        let dy = value.translation.height
+        let dx = value.translation.width
+        return dy > ClawConfig.screenGrabSwipe && dy > abs(dx)
+    }
+
+    // MARK: Machine
+
+    @ViewBuilder
+    private func promptPlaqueLayer(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        ClawFrameDrivenView(signal: engine.hudSignal) {
+            ClawPromptPlaque(
+                text: round?.question.prompt ?? "",
+                pulse: engine.promptPulse > 0.02 ? engine.promptPulse : 0,
+                isPad: isPad,
+                palette: palette,
+                roundNumber: round?.number ?? 1,
+                maximumRounds: maximumRounds
+            )
+            .equatable()
+        }
+        .frame(width: geo.header.width, height: geo.header.height)
+        .position(x: geo.header.midX, y: geo.header.midY)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func hangingCharacterLayer(size: CGSize, bin: CGRect) -> some View {
+        ClawFrameDrivenView(signal: engine.frameSignal) {
+            if engine.elephantVisible {
+                ClawElephantView(
+                    character: engine.hangingCharacter,
+                    origin: engine.trolleyScreen,
+                    swing: engine.swingAngle,
+                    phase: engine.phase,
+                    phaseAge: engine.phaseAge,
+                    celebrationWindUpExtension: engine.celebrationWindUpExtension,
+                    motionClock: engine.motionClock,
+                    play: CGRect(origin: .zero, size: size),
+                    bin: bin,
+                    bodyVisible: engine.elephantBodyVisible,
+                    reduceMotion: reduceMotion,
+                    isPad: isPad
+                )
+                .frame(width: size.width, height: size.height)
+                .position(x: size.width / 2, y: size.height / 2)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
+    }
+
+    private func glassChamber(geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)) -> some View {
+        let corner: CGFloat = isPad ? 26 : 18
+        let habitatScale: CGFloat = isPad ? 1.20 : 1
+        return ZStack(alignment: .topLeading) {
+            SanctuaryScene(palette: palette, character: character, isPad: isPad)
+                .equatable()
+                .drawingGroup(opaque: true)
+                .scaleEffect(habitatScale, anchor: .top)
+                .frame(width: geo.play.width, height: geo.play.height)
+
+            Group {
+                if character.id == "elephant" {
+                    SanctuaryLivingDetails(isPad: isPad,
+                                           reduceMotion: reduceMotion,
+                                           isActive: isRunning)
+                } else {
+                    AnimalHabitatLivingDetails(characterID: character.id,
+                                               isPad: isPad,
+                                               reduceMotion: reduceMotion,
+                                               isActive: isRunning)
+                }
+            }
+            .scaleEffect(habitatScale, anchor: .top)
+            .frame(width: geo.play.width, height: geo.play.height)
+
+            ClawFrameDrivenView(signal: engine.frameSignal) {
+                trolleyRail(in: geo.play)
+            }
+
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(.white.opacity(0.22), lineWidth: 1.4)
+                .blendMode(.screen)
+                .allowsHitTesting(false)
+        }
+        .frame(width: geo.play.width, height: geo.play.height)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .overlay {
+                if !isPad {
+                    cabinetInnerRimStrokes(corner: corner)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if !isPad {
+                    CabinetGlassSill(palette: palette, isPad: isPad)
+                        .frame(height: isPad ? 38 : 28)
+                        .padding(.horizontal, isPad ? 8 : 5)
+                        .offset(y: isPad ? 13 : 10)
+                }
+            }
+        .shadow(color: .black.opacity(0.30), radius: isPad ? 7 : 4, y: 3)
+        .position(x: geo.play.midX, y: geo.play.midY)
+    }
+
+    /// Wooden window frame around the sanctuary. On iPad production play it
+    /// is composited after the pile and elephant so the inner edge sits in
+    /// front of them. The App Store teaser skips it so the hanging character
+    /// can overlap the left cabinet post in the foreground.
+    private func cabinetInnerRim(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        let corner: CGFloat = 26
+        return ZStack {
+            cabinetInnerRimStrokes(corner: corner)
+            VStack {
+                Spacer(minLength: 0)
+                CabinetGlassSill(palette: palette, isPad: true)
+                    .frame(height: 38)
+                    .padding(.horizontal, 8)
+                    .offset(y: 13)
+            }
+        }
+        .frame(width: geo.play.width, height: geo.play.height)
+        .position(x: geo.play.midX, y: geo.play.midY)
+        .allowsHitTesting(false)
+    }
+
+    private func cabinetInnerRimStrokes(corner: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(palette.woodDeep.opacity(0.92),
+                              lineWidth: isPad ? 16 : 11)
+            RoundedRectangle(cornerRadius: corner - (isPad ? 3 : 2), style: .continuous)
+                .inset(by: isPad ? 4 : 3)
+                .strokeBorder(
+                    LinearGradient(colors: [palette.woodLight, palette.wood, palette.woodDeep],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: isPad ? 10 : 7
+                )
+            RoundedRectangle(cornerRadius: corner - (isPad ? 7 : 5), style: .continuous)
+                .inset(by: isPad ? 10 : 7)
+                .strokeBorder(.black.opacity(0.20), lineWidth: isPad ? 3 : 2)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// During the finale the bin is composited once more above the detached
+    /// body. Its authored lid and front wall become the mouth mask, so the
+    /// elephant genuinely passes behind the rim instead of fading away.
+    private func finaleBinForeground(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        CatchBinFrontView(accentColor: palette.character.color)
+            .equatable()
+            .frame(width: geo.bin.width, height: geo.bin.height)
+            .position(x: geo.bin.midX, y: geo.bin.midY)
+            .allowsHitTesting(false)
+    }
+
+    /// Repeat the final metal run below the authored bin. The control shelf is
+    /// composited later and hides it everywhere except the open lower-right
+    /// chamfer, where it closes the otherwise empty strip beside the button.
+    private func binLowerContinuation(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect),
+        size: CGSize
+    ) -> some View {
+        let height = max(0, size.height - geo.bin.maxY + 1)
+        return CatchBinLowerContinuationView(
+            sourceEndY: CatchBinArtwork.visibleSourceHeight(for: maximumRounds),
+            accentColor: palette.character.color
+        )
+        .frame(width: geo.bin.width, height: height)
+        .position(x: geo.bin.midX, y: geo.bin.maxY - 1 + height / 2)
+        .allowsHitTesting(false)
+    }
+
+    /// Redraw only the right-hand part of the chamber threshold above the bin.
+    /// The original full-width threshold remains behind it, so both pieces join
+    /// into one uninterrupted inner line.
+    private func foregroundSillContinuation(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        let height: CGFloat = isPad ? 38 : 28
+        let offset: CGFloat = isPad ? 13 : 10
+        let left = max(geo.play.minX, geo.bin.minX)
+        let width = max(0, geo.play.maxX - left)
+        return CabinetGlassSill(palette: palette, isPad: isPad)
+            .frame(width: geo.play.width, height: height)
+            .frame(width: width, height: height, alignment: .trailing)
+            .clipped()
+            .position(x: left + width / 2,
+                      y: geo.play.maxY - height / 2 + offset)
+            .allowsHitTesting(false)
+    }
+
+    private func trolleyRail(in play: CGRect) -> some View {
+        let x = engine.trolleyScreen.x - play.minX
+        return ZStack(alignment: .top) {
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.62, green: 0.50, blue: 0.28),
+                                            Color(red: 0.28, green: 0.18, blue: 0.08)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(height: isPad ? 10 : 7)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color(red: 0.22, green: 0.18, blue: 0.12))
+                .frame(width: isPad ? 28 : 20, height: isPad ? 14 : 10)
+                .overlay {
+                    Capsule().fill(Color(red: 0.85, green: 0.68, blue: 0.22)).padding(3)
+                }
+                .position(x: x, y: isPad ? 14 : 11)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var controlPanel: some View {
+        GeometryReader { proxy in
+            let layout = ArcadeControlLayout(size: proxy.size, isPad: isPad)
+            let board = ArcadeShelfShape(topInset: layout.topInset,
+                                         bottomRadius: isPad ? 22 : 15)
+
+            ZStack(alignment: .topLeading) {
+                ZStack {
+                    board.fill(
+                        LinearGradient(
+                            colors: [palette.woodDeep,
+                                     palette.wood,
+                                     palette.woodLight],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .shadow(color: palette.character.color.opacity(0.30),
+                            radius: isPad ? 14 : 10)
+                    ArcadeShelfSideEdge(topInset: layout.topInset, side: .leading,
+                                        thickness: isPad ? 16 : 11)
+                        .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
+                    ArcadeShelfSideEdge(topInset: layout.topInset, side: .trailing,
+                                        thickness: isPad ? 16 : 11)
+                        .fill(palette.woodDeep.opacity(0.36))
+                    woodGrain
+                        .clipShape(board)
+                    LinearGradient(colors: [Color.black.opacity(0.42), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: isPad ? 22 : 15)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .clipShape(board)
+                    LinearGradient(colors: [.clear,
+                                            Color.black.opacity(0.18),
+                                            Color.white.opacity(0.20)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: isPad ? 15 : 10)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .clipShape(board)
+
+                    // A broad wash from both cabinet sides makes the console
+                    // share their coloured light without drawing a hard rim.
+                    LinearGradient(
+                        stops: [
+                            .init(color: palette.character.color.opacity(0.24), location: 0),
+                            .init(color: .clear, location: 0.20),
+                            .init(color: .clear, location: 0.80),
+                            .init(color: palette.character.color.opacity(0.24), location: 1)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .blendMode(.screen)
+                    .clipShape(board)
+                    .allowsHitTesting(false)
+
+                    // Thick rear console edge: the dark top is the glass seal,
+                    // the warmer face is the wooden lip below it.
+                    RoundedRectangle(cornerRadius: isPad ? 5 : 3, style: .continuous)
+                        .fill(
+                            LinearGradient(colors: [palette.woodDeep,
+                                                    palette.wood,
+                                                    palette.woodLight,
+                                                    palette.woodDeep],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
+                        .frame(height: isPad ? 18 : 13)
+                        .padding(.horizontal, layout.topInset)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .overlay(alignment: .top) {
+                            Rectangle()
+                                .fill(.black.opacity(0.30))
+                                .frame(height: isPad ? 3 : 2)
+                                .padding(.horizontal, layout.topInset + 2)
+                        }
+                        .shadow(color: .black.opacity(0.42), radius: 3, y: 4)
+                }
+                .frame(width: proxy.size.width, height: layout.shelfHeight)
+                .position(x: proxy.size.width / 2,
+                          y: layout.shelfTop + layout.shelfHeight / 2)
+                .allowsHitTesting(false)
+
+                ClawFrameDrivenView(signal: engine.controlSignal) {
+                    joystick
+                }
+                .frame(width: layout.joystickWidth,
+                       height: layout.joystickHeight)
+                .position(x: layout.joystickCenter.x,
+                          y: layout.joystickCenter.y)
+
+                if tutorialPlan.highlightsJoystick {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        let knob = layout.joystickKnobCenter(input: engine.joystickInput)
+                        TutorialControlHint(kind: .joystick,
+                                            color: palette.character.color,
+                                            deepColor: palette.character.deepColor,
+                                            clock: engine.motionClock,
+                                            reduceMotion: reduceMotion,
+                                            isPad: isPad)
+                            // The source artwork has a large transparent canvas.
+                            // Aim at the red knob and follow its actual tilt.
+                            .frame(width: layout.joystickKnobDiameter,
+                                   height: layout.joystickKnobDiameter)
+                            .position(x: knob.x, y: knob.y)
+                    }
+                    .transaction { $0.animation = nil }
+                }
+
+                ClawPanelScore(score: score, isPad: isPad, palette: palette)
+                    .frame(width: layout.scoreWidth,
+                           height: layout.scoreHeight)
+                    .position(x: layout.scoreCenter.x,
+                              y: layout.scoreCenter.y)
+
+                if tutorialPlan.highlightsScore {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        TutorialPanelHint(color: palette.character.color,
+                                          deepColor: palette.character.deepColor,
+                                          clock: engine.motionClock,
+                                          reduceMotion: reduceMotion,
+                                          isPad: isPad)
+                    }
+                    .frame(width: layout.scoreHintFrame.width,
+                           height: layout.scoreHintFrame.height)
+                    .position(x: layout.scoreHintFrame.midX,
+                              y: layout.scoreHintFrame.midY)
+                    .transaction { $0.animation = nil }
+                }
+
+                ClawFrameDrivenView(signal: engine.controlSignal) {
+                    grabButton(side: layout.grabSide)
+                }
+                .frame(width: layout.grabSide, height: layout.grabSide)
+                .position(x: layout.grabCenter.x,
+                          y: layout.grabCenter.y)
+
+                if tutorialPlan.highlightsGrab {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        TutorialControlHint(kind: .grab,
+                                            color: palette.character.color,
+                                            deepColor: palette.character.deepColor,
+                                            clock: engine.motionClock,
+                                            reduceMotion: reduceMotion,
+                                            isPad: isPad)
+                    }
+                    .frame(width: layout.grabHintDiameter,
+                           height: layout.grabHintDiameter)
+                    .position(x: layout.grabCapCenter.x,
+                              y: layout.grabCapCenter.y)
+                    .transaction { $0.animation = nil }
+                }
+            }
+        }
+    }
+
+    private var woodGrain: some View {
+        VStack(spacing: isPad ? 11 : 9) {
+            ForEach(0..<6, id: \.self) { index in
+                Capsule()
+                    .fill(Color.black.opacity(index.isMultiple(of: 2) ? 0.06 : 0.03))
+                    .frame(height: 1.2)
+                    .padding(.horizontal, CGFloat(8 + index * 4))
+            }
+        }
+        .padding(.vertical, 10)
+        .allowsHitTesting(false)
+    }
+
+    private var joystick: some View {
+        ClawJoystickChrome(input: engine.joystickInput, palette: palette)
+            .equatable()
+            .aspectRatio(JoystickArt.canvas.width / JoystickArt.canvas.height, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(joystickDrag(width: proxy.size.width))
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("game.claw.joystick"))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: engine.setInput(1)
+                case .decrement: engine.setInput(-1)
+                default: break
+                }
+            }
+    }
+
+    private func joystickDrag(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if value.startLocation.x < width / 3 {
+                    engine.setInput(-1)
+                } else if value.startLocation.x > width * 2 / 3 {
+                    engine.setInput(1)
+                } else {
+                    let span: CGFloat = isPad ? 40 : 32
+                    engine.setInput(max(-1, min(1, value.translation.width / span)))
+                }
+            }
+            .onEnded { _ in engine.setInput(0) }
+    }
+
+    private func grabButton(side: CGFloat) -> some View {
+        let travel = side * (GrabButtonArt.pressTravel / GrabButtonArt.canvas)
+        let faceOffset = side * (GrabButtonArt.labelCenterY - 0.5)
+
+        return Button(action: commitGrab) {
+            ZStack {
+                ZStack {
+                    grabHousingImage
+                        .resizable()
+                        .interpolation(.high)
+                    grabHousingImage
+                        .renderingMode(.template)
+                        .resizable()
+                        .interpolation(.high)
+                        .foregroundStyle(palette.character.color.opacity(0.38))
+                        .blendMode(.color)
+                }
+                .compositingGroup()
+                .shadow(color: palette.character.color.opacity(0.34),
+                        radius: isPad ? 13 : 9)
+
+                ZStack {
+                    grabCapImage
+                        .resizable()
+                        .interpolation(.high)
+                    Text("game.claw.grab")
+                        .font(.system(size: side * 0.20, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.32)
+                        .allowsTightening(true)
+                        .multilineTextAlignment(.center)
+                        .frame(width: side * 0.54)
+                        .offset(y: faceOffset)
+                }
+                .offset(y: engine.buttonPressed ? travel : 0)
+
+                ZStack {
+                    grabLipImage
+                        .resizable()
+                        .interpolation(.high)
+                    grabLipImage
+                        .renderingMode(.template)
+                        .resizable()
+                        .interpolation(.high)
+                        .foregroundStyle(palette.character.color.opacity(0.30))
+                        .blendMode(.color)
+                }
+                .compositingGroup()
+            }
+            .frame(width: side, height: side)
+            .contentShape(Circle())
+            .animation(engine.buttonPressed
+                           ? .easeIn(duration: 0.08)
+                           : .easeOut(duration: 0.24),
+                       value: engine.buttonPressed)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("claw-grab")
+        .accessibilityLabel(Text("game.claw.grab"))
+    }
+
+    private var grabHousingImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabHousing)
+#else
+        Image("button3")
+#endif
+    }
+
+    private var grabCapImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabCap)
+#else
+        Image("button2")
+#endif
+    }
+
+    private var grabLipImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabLip)
+#else
+        Image("button1")
+#endif
+    }
+}
+
+/// A bright, animated pointer around the physical control used by the current
+/// tutorial instruction. It sits outside the control's hit-testing so the hint
+/// can never intercept the tap it is asking for.
+private struct TutorialControlHint: View {
+    enum Kind {
+        case joystick
+        case grab
+    }
+
+    let kind: Kind
+    let color: Color
+    let deepColor: Color
+    let clock: Double
+    let reduceMotion: Bool
+    let isPad: Bool
+
+    var body: some View {
+        let wave = reduceMotion ? 0.5 : (sin(clock * 4.2) + 1) / 2
+        return GeometryReader { proxy in
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.92), lineWidth: isPad ? 5 : 3.5)
+                    .padding(isPad ? 5 : 3)
+                    .scaleEffect(1.02 + wave * 0.10)
+                    .opacity(0.92 - wave * 0.30)
+                    .shadow(color: color.opacity(0.95), radius: isPad ? 14 : 10)
+
+                Circle()
+                    .stroke(color,
+                            style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                               lineCap: .round,
+                                               dash: [isPad ? 12 : 9, isPad ? 9 : 7],
+                                               dashPhase: reduceMotion ? 0 : clock * -18))
+                    .scaleEffect(1.08 + wave * 0.06)
+                    .shadow(color: .white.opacity(0.75), radius: 4)
+
+                sparkle(at: CGPoint(x: proxy.size.width * 0.04,
+                                     y: proxy.size.height * 0.16),
+                         phase: wave)
+                sparkle(at: CGPoint(x: proxy.size.width * 0.94,
+                                     y: proxy.size.height * 0.80),
+                         phase: 1 - wave)
+
+                if kind == .joystick {
+                    Image(systemName: "arrow.left.and.right")
+                        .font(.system(size: isPad ? 20 : 14, weight: .black))
+                        .foregroundStyle(.white)
+                        .padding(isPad ? 7 : 5)
+                        .background(deepColor, in: Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .shadow(color: color.opacity(0.9), radius: 8)
+                        .position(x: proxy.size.width * 0.50,
+                                  y: -wave * (isPad ? 5 : 3))
+                } else {
+                    Image(systemName: "hand.point.up.left.fill")
+                        .font(.system(size: isPad ? 31 : 23, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: deepColor.opacity(0.95), radius: 4, y: 2)
+                        .rotationEffect(.degrees(-12 + wave * 8))
+                        .scaleEffect(0.94 + wave * 0.10)
+                        .position(x: proxy.size.width * 0.82,
+                                  y: proxy.size.height * 0.04 - wave * (isPad ? 6 : 4))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func sparkle(at point: CGPoint, phase: Double) -> some View {
+        Image(systemName: "sparkle")
+            .font(.system(size: isPad ? 22 : 16, weight: .black))
+            .foregroundStyle(.white)
+            .shadow(color: color, radius: 5)
+            .scaleEffect(0.72 + phase * 0.48)
+            .opacity(0.58 + phase * 0.42)
+            .position(point)
+    }
+}
+
+/// A compact rounded focus around the recessed score digits. The score pad has
+/// broad transparent artwork margins, so targeting its full canvas would make
+/// the lesson point at empty space instead of the number that just changed.
+private struct TutorialPanelHint: View {
+    let color: Color
+    let deepColor: Color
+    let clock: Double
+    let reduceMotion: Bool
+    let isPad: Bool
+
+    var body: some View {
+        let wave = reduceMotion ? 0.5 : (sin(clock * 4.2) + 1) / 2
+        ZStack {
+            RoundedRectangle(cornerRadius: isPad ? 16 : 11, style: .continuous)
+                .stroke(.white.opacity(0.96), lineWidth: isPad ? 5 : 3.5)
+                .scaleEffect(1.02 + wave * 0.10)
+                .opacity(0.94 - wave * 0.28)
+                .shadow(color: color.opacity(0.95), radius: isPad ? 14 : 10)
+
+            RoundedRectangle(cornerRadius: isPad ? 18 : 13, style: .continuous)
+                .stroke(color,
+                        style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                           lineCap: .round,
+                                           dash: [isPad ? 12 : 9, isPad ? 9 : 7],
+                                           dashPhase: reduceMotion ? 0 : clock * -18))
+                .scaleEffect(1.10 + wave * 0.05)
+                .shadow(color: .white.opacity(0.78), radius: 4)
+
+            Image(systemName: "arrow.down")
+                .font(.system(size: isPad ? 20 : 14, weight: .black))
+                .foregroundStyle(.white)
+                .padding(isPad ? 7 : 5)
+                .background(deepColor, in: Circle())
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .shadow(color: color.opacity(0.9), radius: 8)
+                .offset(y: -(isPad ? 34 : 25) - wave * (isPad ? 5 : 3))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Optical layout for the three authored control canvases. The reference art
+/// is composed on a 1024-point cabinet; `stageWidth` preserves those ratios on
+/// portrait screens and keeps the group centred instead of stretching it on a
+/// wide iPad. Positions are based on the visible artwork, not equal HStack
+/// cells (the score pad intentionally has large transparent side margins).
+private struct ArcadeControlLayout {
+    let size: CGSize
+    let isPad: Bool
+
+    var stageWidth: CGFloat {
+        min(size.width, size.height * (isPad ? 5.0 : 5.3))
+    }
+
+    var stageOriginX: CGFloat { (size.width - stageWidth) / 2 }
+    var shelfTop: CGFloat { size.height * (isPad ? 0.42 : 0.25) }
+    var shelfHeight: CGFloat { max(1, size.height - shelfTop) }
+    var topInset: CGFloat {
+        min(isPad ? 82 : 36, max(isPad ? 44 : 18, size.width * 0.075))
+    }
+
+    var joystickWidth: CGFloat { stageWidth * 0.38 }
+    var joystickHeight: CGFloat {
+        joystickWidth * JoystickArt.canvas.height / JoystickArt.canvas.width
+    }
+    var scoreWidth: CGFloat { stageWidth * (isPad ? 0.32 : 0.285) }
+    var scoreHeight: CGFloat {
+        scoreWidth * ScorePadArt.canvas.height / ScorePadArt.canvas.width
+    }
+    var grabSide: CGFloat { stageWidth * 0.265 }
+
+    var joystickCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.27, y: size.height * (isPad ? 0.63 : 0.50))
+    }
+    func joystickKnobCenter(input: CGFloat) -> CGPoint {
+        let clamped = max(-1, min(1, input))
+        let angle = clamped * CGFloat(JoystickArt.maxTilt) * .pi / 180
+        let knob = CGPoint(x: joystickWidth * JoystickArt.tutorialKnobCenter.x,
+                           y: joystickHeight * JoystickArt.tutorialKnobCenter.y)
+        let pivot = CGPoint(x: joystickWidth * JoystickArt.pokeAnchor.x,
+                            y: joystickHeight * JoystickArt.pokeAnchor.y)
+        let dx = knob.x - pivot.x
+        let dy = knob.y - pivot.y
+        let rotated = CGPoint(x: pivot.x + dx * cos(angle) - dy * sin(angle),
+                              y: pivot.y + dx * sin(angle) + dy * cos(angle))
+        return CGPoint(x: joystickCenter.x - joystickWidth / 2 + rotated.x,
+                       y: joystickCenter.y - joystickHeight / 2 + rotated.y)
+    }
+    var joystickKnobDiameter: CGFloat {
+        joystickWidth * JoystickArt.tutorialKnobDiameter
+    }
+    var scoreCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.568, y: size.height * (isPad ? 0.65 : 0.53))
+    }
+    var scoreHintFrame: CGRect {
+        let sx = scoreWidth / ScorePadArt.canvas.width
+        let sy = scoreHeight / ScorePadArt.canvas.height
+        let well = CGRect(x: scoreCenter.x - scoreWidth / 2 + ScorePadArt.well.minX * sx,
+                          y: scoreCenter.y - scoreHeight / 2 + ScorePadArt.well.minY * sy,
+                          width: ScorePadArt.well.width * sx,
+                          height: ScorePadArt.well.height * sy)
+        let padding = isPad ? max(12, scoreWidth * 0.07) : max(8, scoreWidth * 0.06)
+        return well.insetBy(dx: -padding, dy: -padding * 0.72)
+    }
+    var grabCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.79, y: size.height * (isPad ? 0.67 : 0.55))
+    }
+    var grabCapCenter: CGPoint {
+        CGPoint(x: grabCenter.x,
+                y: grabCenter.y + grabSide * (GrabButtonArt.labelCenterY - 0.5))
+    }
+    var grabHintDiameter: CGFloat { grabSide * 0.62 }
+}
+
+private enum GrabButtonArt {
+    static let canvas: CGFloat = 1254
+    /// Cap travel into the housing, in canvas pixels.
+    static let pressTravel: CGFloat = 88
+    /// Centre of the red top face, as a fraction of the square canvas.
+    static let labelCenterY: CGFloat = 470 / 1254
+}
+
+private struct ClawPanelScore: View {
+    let score: Int
+    let isPad: Bool
+    let palette: ClawPalette
+
+    private var digits: [Int] {
+        let clamped = min(99, max(0, score))
+        return [clamped / 10, clamped % 10]
+    }
+
+    var body: some View {
+        ZStack {
+            ZStack {
+                scorePadImage
+                    .resizable()
+                    .interpolation(.high)
+                scorePadImage
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .foregroundStyle(metalEdgeTint)
+                    .blendMode(.color)
+            }
+            .compositingGroup()
+            .shadow(color: palette.character.color.opacity(0.34),
+                    radius: isPad ? 12 : 8)
+            GeometryReader { proxy in
+                let sx = proxy.size.width / ScorePadArt.canvas.width
+                let sy = proxy.size.height / ScorePadArt.canvas.height
+                let well = CGRect(x: ScorePadArt.well.minX * sx,
+                                  y: ScorePadArt.well.minY * sy,
+                                  width: ScorePadArt.well.width * sx,
+                                  height: ScorePadArt.well.height * sy)
+                HStack(spacing: well.width * 0.10) {
+                    ForEach(Array(digits.enumerated()), id: \.offset) { _, digit in
+                        SevenSegmentDigit(value: digit)
+                    }
+                }
+                .frame(width: well.width, height: well.height * 0.78, alignment: .center)
+                .position(x: well.midX, y: well.midY)
+            }
+        }
+        .aspectRatio(ScorePadArt.canvas.width / ScorePadArt.canvas.height, contentMode: .fit)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ScoreIconCenterPreferenceKey.self,
+                    value: CGPoint(x: proxy.frame(in: .global).midX,
+                                   y: proxy.frame(in: .global).midY)
+                )
+            }
+        }
+        .accessibilityIdentifier("progress")
+        .accessibilityLabel(Text(L("game.nutsCollected \(score)")))
+        .allowsHitTesting(false)
+    }
+
+    private var scorePadImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.scorePad)
+#else
+        Image("score_pad")
+#endif
+    }
+
+    private var metalEdgeTint: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: palette.character.color.opacity(0.48), location: 0),
+                .init(color: palette.character.color.opacity(0.20), location: 0.20),
+                .init(color: .clear, location: 0.36),
+                .init(color: .clear, location: 0.64),
+                .init(color: palette.character.color.opacity(0.20), location: 0.80),
+                .init(color: palette.character.color.opacity(0.48), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+private enum ScorePadArt {
+    static let canvas = CGSize(width: 387, height: 244)
+    /// Recessed LED face on `score_pad`.
+    static let well = CGRect(x: 136, y: 104, width: 112, height: 76)
+}
+
+/// Classic 7-segment digit with unlit ghost segments and a warm gold glow.
+private struct SevenSegmentDigit: View {
+    var value: Int?
+
+    private static let gold = Color(red: 1.0, green: 0.86, blue: 0.38)
+    private static let core = Color(red: 1.0, green: 0.96, blue: 0.62)
+    private static let dim = Color(red: 0.27, green: 0.26, blue: 0.22).opacity(0.72)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let lit = Self.bits(value)
+            ZStack {
+                SevenSegmentShape(on: Array(repeating: true, count: 7))
+                    .fill(Self.dim)
+                SevenSegmentShape(on: lit)
+                    .fill(Self.core)
+                    .shadow(color: Self.gold.opacity(0.95), radius: max(2, proxy.size.height * 0.10))
+                    .shadow(color: Color(red: 1.0, green: 0.55, blue: 0.12).opacity(0.75),
+                            radius: max(3, proxy.size.height * 0.22))
+            }
+        }
+        .aspectRatio(0.58, contentMode: .fit)
+    }
+
+    private static func bits(_ value: Int?) -> [Bool] {
+        switch value {
+        case 0: return [true, true, true, true, true, true, false]
+        case 1: return [false, true, true, false, false, false, false]
+        case 2: return [true, true, false, true, true, false, true]
+        case 3: return [true, true, true, true, false, false, true]
+        case 4: return [false, true, true, false, false, true, true]
+        case 5: return [true, false, true, true, false, true, true]
+        case 6: return [true, false, true, true, true, true, true]
+        case 7: return [true, true, true, false, false, false, false]
+        case 8: return [true, true, true, true, true, true, true]
+        case 9: return [true, true, true, true, false, true, true]
+        default: return Array(repeating: false, count: 7)
+        }
+    }
+}
+
+/// Segments a–g as short trapezoids, in order: A B C D E F G.
+private struct SevenSegmentShape: Shape {
+    var on: [Bool]
+
+    func path(in rect: CGRect) -> Path {
+        let t = min(rect.width, rect.height) * 0.16
+        let g = t * 0.18
+        let x0 = rect.minX
+        let x1 = rect.maxX
+        let y0 = rect.minY
+        let y1 = rect.maxY
+        let ym = rect.midY
+        let hx = t * 0.55
+
+        func hBar(y: CGFloat, left: CGFloat, right: CGFloat) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: left + g + hx, y: y))
+            p.addLine(to: CGPoint(x: right - g - hx, y: y))
+            p.addLine(to: CGPoint(x: right - g, y: y + t / 2))
+            p.addLine(to: CGPoint(x: right - g - hx, y: y + t))
+            p.addLine(to: CGPoint(x: left + g + hx, y: y + t))
+            p.addLine(to: CGPoint(x: left + g, y: y + t / 2))
+            p.closeSubpath()
+            return p
+        }
+
+        func vBar(x: CGFloat, top: CGFloat, bottom: CGFloat) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: x + t / 2, y: top + g))
+            p.addLine(to: CGPoint(x: x + t, y: top + g + hx))
+            p.addLine(to: CGPoint(x: x + t, y: bottom - g - hx))
+            p.addLine(to: CGPoint(x: x + t / 2, y: bottom - g))
+            p.addLine(to: CGPoint(x: x, y: bottom - g - hx))
+            p.addLine(to: CGPoint(x: x, y: top + g + hx))
+            p.closeSubpath()
+            return p
+        }
+
+        var path = Path()
+        let segs: [Path] = [
+            hBar(y: y0, left: x0, right: x1),
+            vBar(x: x1 - t, top: y0, bottom: ym),
+            vBar(x: x1 - t, top: ym, bottom: y1),
+            hBar(y: y1 - t, left: x0, right: x1),
+            vBar(x: x0, top: ym, bottom: y1),
+            vBar(x: x0, top: y0, bottom: ym),
+            hBar(y: ym - t / 2, left: x0, right: x1)
+        ]
+        for (index, segment) in segs.enumerated() where index < on.count && on[index] {
+            path.addPath(segment)
+        }
+        return path
+    }
+}
+
+struct ScoreIconCenterPreferenceKey: PreferenceKey {
+    static var defaultValue: CGPoint? = nil
+
+    static func reduce(value: inout CGPoint?, nextValue: () -> CGPoint?) {
+        value = nextValue() ?? value
+    }
+}
+
+private enum JoystickArt {
+    static let canvas = CGSize(width: 387, height: 244)
+    static let maxTilt: Double = 24
+    /// Measured on `poke.png`: the red knob, excluding the transparent canvas.
+    static let tutorialKnobCenter = UnitPoint(x: 208 / 387, y: 58 / 244)
+    static let tutorialKnobDiameter: CGFloat = 104 / 387
+    /// Socket lip — the visible stem pivots here so the foot stays in the ring.
+    static let pokeAnchor = UnitPoint(x: 207 / 387, y: 124 / 244)
+    /// Midpoint of the baked-in arrows on `base`, used to mirror the light.
+    static let flipAnchor = UnitPoint(x: 201 / 387, y: 0.5)
+}
+
+/// Circular clip at the inner ring; hides everything below the socket lip.
+private struct PokeSocketMask: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / JoystickArt.canvas.width
+        let sy = rect.height / JoystickArt.canvas.height
+        var path = Path()
+        path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: 99 * sy))
+        path.addEllipse(in: CGRect(x: 182 * sx, y: 74 * sy, width: 50 * sx, height: 50 * sy))
+        return path
+    }
+}
+
+/// The lower glass seal and wooden threshold. It overlaps the control shelf by
+/// a few points so the play chamber and console read as one cabinet instead of
+/// two rectangles touching edge-to-edge.
+private struct CabinetGlassSill: View, Equatable {
+    let palette: ClawPalette
+    let isPad: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height
+            ZStack {
+                CabinetSillShape(bevel: height * 0.20)
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.18, green: 0.09, blue: 0.03),
+                                                palette.woodDeep,
+                                                palette.wood,
+                                                Color(red: 0.67, green: 0.43, blue: 0.19),
+                                                Color(red: 0.29, green: 0.14, blue: 0.04)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                CabinetSillShape(bevel: height * 0.20)
+                    .stroke(.black.opacity(0.46), lineWidth: isPad ? 3 : 2)
+                Rectangle()
+                    .fill(.black.opacity(0.52))
+                    .frame(height: isPad ? 5 : 4)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, height * 0.22)
+                Rectangle()
+                    .fill(.white.opacity(0.17))
+                    .frame(height: isPad ? 2 : 1)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, height * 0.30)
+                    .padding(.top, isPad ? 6 : 5)
+                LinearGradient(colors: [.clear, .black.opacity(0.26)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: height * 0.48)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .clipShape(CabinetSillShape(bevel: height * 0.20))
+                HStack {
+                    fastener
+                    Spacer()
+                    fastener
+                }
+                .padding(.horizontal, height * 0.62)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var fastener: some View {
+        Circle()
+            .fill(palette.woodDeep.opacity(0.75))
+            .frame(width: isPad ? 7 : 5, height: isPad ? 7 : 5)
+            .overlay {
+                Capsule()
+                    .fill(palette.woodLight.opacity(0.7))
+                    .frame(width: isPad ? 4 : 3, height: 1)
+                    .rotationEffect(.degrees(-18))
+            }
+    }
+}
+
+private struct CabinetSillShape: Shape {
+    let bevel: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let b = min(bevel, min(rect.width, rect.height) * 0.30)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + b, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - b, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + b))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - b * 0.45))
+        path.addLine(to: CGPoint(x: rect.maxX - b * 0.55, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + b * 0.55, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - b * 0.45))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + b))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Control shelf seen from the front: narrower at the glass, wider toward the player.
+private struct ArcadeShelfShape: Shape {
+    var topInset: CGFloat
+    var bottomRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let inset = min(max(0, topInset), rect.width * 0.28)
+        let radius = min(max(0, bottomRadius), rect.height * 0.35)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY))
+        if radius > 0.5 {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
+                              control: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+            path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - radius),
+                              control: CGPoint(x: rect.minX, y: rect.maxY))
+        } else {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Dark sliver along a slanted shelf edge so the board reads as thick wood.
+private struct ArcadeShelfSideEdge: Shape {
+    enum Side { case leading, trailing }
+    var topInset: CGFloat
+    var side: Side
+    var thickness: CGFloat = 11
+
+    func path(in rect: CGRect) -> Path {
+        let inset = min(max(0, topInset), rect.width * 0.28)
+        let thick = min(thickness, rect.width * 0.08)
+        var path = Path()
+        switch side {
+        case .leading:
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + thick, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + inset + thick * 0.35, y: rect.minY))
+        case .trailing:
+            path.move(to: CGPoint(x: rect.maxX - inset, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX - thick, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX - inset - thick * 0.35, y: rect.minY))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct ClawPromptPlaque: View, Equatable {
+    let text: String
+    let pulse: Double
+    let isPad: Bool
+    let palette: ClawPalette
+    let roundNumber: Int
+    let maximumRounds: Int
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(.system(size: isPad ? 44 : 28, weight: .black, design: .rounded))
+            .foregroundStyle(.white)
+            .minimumScaleFactor(0.45)
+            .lineLimit(1)
+            .scaleEffect(1 + 0.04 * pulse)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, isPad ? 16 : 10)
+            .background {
+                RoundedRectangle(cornerRadius: isPad ? 16 : 12, style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [palette.wood,
+                                                palette.woodDeep,
+                                                Color.black.opacity(0.74)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 16 : 12, style: .continuous)
+                            .stroke(
+                                LinearGradient(colors: [palette.woodLight.opacity(0.7),
+                                                        palette.woodDeep.opacity(0.8)],
+                                               startPoint: .top, endPoint: .bottom),
+                                lineWidth: 2
+                            )
+                    }
+            }
+            .shadow(color: .black.opacity(0.32), radius: 8, y: 4)
+            .accessibilityIdentifier("claw-prompt")
+            .accessibilityValue(Text(verbatim: L("game.claw.progress \(roundNumber) \(maximumRounds)")))
+    }
+}
+
+private struct ClawElephantView: View {
+    let character: AnimalCharacter
+    let origin: CGPoint
+    let swing: CGFloat
+    let phase: ClawPhase
+    let phaseAge: Double
+    let celebrationWindUpExtension: Double
+    let motionClock: Double
+    let play: CGRect
+    let bin: CGRect
+    let bodyVisible: Bool
+    let reduceMotion: Bool
+    let isPad: Bool
+
+    private var rig: HangingCharacterRig { character.hanging }
+
+    var body: some View {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let local = CGPoint(x: origin.x - play.minX, y: origin.y - play.minY)
+        let grip = armGrip
+        let isFinale = phase == .celebrating || phase == .timeUp
+        // The animal hangs from its back feet, so the loose response grows
+        // gently down the body: the face and front arms travel a touch farther
+        // than the legs nearest the rope. A tiny phase delay keeps the layers
+        // connected while still suggesting soft weight below the attachment.
+        let bottomLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.11 + sin(motionClock * 2.15) * 0.012)
+        let headLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.13 + sin(motionClock * 2.15 - 0.08) * 0.015)
+        let armLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.15 + sin(motionClock * 2.15 - 0.12) * 0.017)
+        let motion = bodyMotion(side: side)
+        ZStack(alignment: .topLeading) {
+            swayingRope(to: local)
+
+            // Once the body lets go, this empty mechanical claw continues to
+            // follow the trolley and settles independently.
+            hangingLayer(rig.claw)
+                .frame(width: side, height: side)
+                .rotationEffect(.radians(Double(swing)), anchor: .top)
+                .position(x: local.x, y: local.y + side * 0.50)
+
+            ZStack {
+                hangingLayer(rig.bottom)
+                    .mask(alignment: .bottom) {
+                        Rectangle().frame(height: side * rig.bottomVisibleFraction)
+                    }
+                    .rotationEffect(bottomLag, anchor: .top)
+
+                hangingLayer(rig.leftArm)
+                    .rotationEffect(.degrees(-rig.armCloseDegrees * grip),
+                                    anchor: rig.leftArmPivot)
+                    .rotationEffect(armLag, anchor: .top)
+
+                hangingLayer(rig.rightArm)
+                    .rotationEffect(.degrees(rig.armCloseDegrees * grip),
+                                    anchor: rig.rightArmPivot)
+                    .rotationEffect(armLag, anchor: .top)
+
+                // The face deliberately renders last: it hides the arm and
+                // torso seams while the loose layers are moving.
+                hangingLayer(rig.head)
+                    .rotationEffect(headLag, anchor: .top)
+            }
+            .frame(width: side, height: side)
+            .scaleEffect(motion.scale, anchor: motion.scaleAnchor)
+            .rotationEffect(motion.attachmentRotation, anchor: .top)
+            .rotationEffect(motion.spinRotation, anchor: .center)
+            .position(x: local.x + motion.offset.width,
+                      y: local.y + side * 0.50 + motion.offset.height)
+            .opacity(bodyVisible ? 1 : 0)
+            .animation(nil, value: bodyVisible)
+        }
+        .frame(width: play.width, height: play.height)
+        .mask {
+            if isFinale {
+                CatchBinDiveVisibilityMask(play: play, bin: bin)
+            } else {
+                Rectangle()
+            }
+        }
+        .allowsHitTesting(false)
+        // The result card's spring must not interpolate the body back onto
+        // the hook while its opacity is catching up.
+        .transaction { $0.animation = nil }
+    }
+
+    /// Arms close while the walnut moves into the grip, stay closed during the
+    /// lift and carry, then open as soon as the walnut is released over the bin.
+    private var armGrip: Double {
+        switch phase {
+        case .grabbing:
+            return smooth(min(1, phaseAge / ClawConfig.grabPause))
+        case .ascending, .carrying:
+            return 1
+        case .dropping:
+            return 1 - smooth(min(1, phaseAge / 0.16))
+        case .celebrating:
+            // Pull the front legs together before the release so the body
+            // forms one clean diving silhouette through the bin mouth.
+            return smooth(min(1, phaseAge / 0.24))
+        default:
+            return 0
+        }
+    }
+
+    private func smooth(_ value: Double) -> Double {
+        value * value * (3 - 2 * value)
+    }
+
+    private struct BodyMotion {
+        let offset: CGSize
+        let attachmentRotation: Angle
+        let spinRotation: Angle
+        let scale: CGFloat
+        var scaleAnchor: UnitPoint = .top
+    }
+
+    /// The body stays on the hook through the left wind-up and the return
+    /// swing. At release it leaves as one centre-axis salto: the first frame
+    /// matches the pendulum pose, then a single 360° carries it into the
+    /// mouth at nearly full size.
+    private func bodyMotion(side: CGFloat) -> BodyMotion {
+        switch phase {
+        case .celebrating:
+            let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
+            let mouthArrivalAge = ClawConfig.celebrationMouthArrival + celebrationWindUpExtension
+            let completionAge = ClawConfig.completionDuration + celebrationWindUpExtension
+            guard phaseAge >= releaseAge else {
+                return attachedBody
+            }
+
+            let releaseAngle: CGFloat = reduceMotion
+                ? 0
+                : ClawConfig.celebrationReleaseAngle
+            let approachDuration = mouthArrivalAge - releaseAge
+            let approach = min(1, max(0,
+                (phaseAge - releaseAge) / approachDuration
+            ))
+            let mouth = CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
+                                              y: CatchBinArtwork.mouthY,
+                                              in: bin)
+            let mouthScale: CGFloat = reduceMotion ? 0.86 : 0.90
+            let pendulumRadius = side * 0.50
+            let startOffset = reduceMotion
+                ? CGSize.zero
+                : CGSize(width: -pendulumRadius * sin(releaseAngle),
+                         height: pendulumRadius * (cos(releaseAngle) - 1))
+            let mouthOffset = CGSize(
+                width: mouth.x - origin.x,
+                height: mouth.y - origin.y - side * 0.62 * mouthScale
+            )
+            let insideOffset = CGSize(
+                width: mouth.x - origin.x,
+                height: CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: bin) - origin.y
+            )
+            let plungeDuration = completionAge - mouthArrivalAge
+
+            let omega = reduceMotion ? 0 : ClawConfig.celebrationReleaseAngularVelocity()
+            var initialVelocity = CGSize(
+                width: -pendulumRadius * cos(releaseAngle) * omega,
+                height: -pendulumRadius * sin(releaseAngle) * omega
+            )
+            if !reduceMotion {
+                // Extra upward whip so the body pops off the hook instead of
+                // sliding sideways into a spin.
+                initialVelocity.height -= side * 0.95
+            }
+            let mouthVelocity = CGSize(
+                width: max(36, (mouthOffset.width - startOffset.width)
+                    * 0.22 / CGFloat(max(0.01, approachDuration))),
+                height: (insideOffset.height - mouthOffset.height)
+                    * 0.55 / CGFloat(max(0.01, plungeDuration))
+            )
+
+            if approach < 1 {
+                let approachEase = smooth(approach)
+                let flightOffset = cubicHermite(from: startOffset,
+                                                to: mouthOffset,
+                                                initialVelocity: initialVelocity,
+                                                finalVelocity: mouthVelocity,
+                                                duration: CGFloat(approachDuration),
+                                                progress: CGFloat(approach))
+                let salto = reduceMotion ? 0.0 : pow(approach, 0.82)
+                return BodyMotion(
+                    offset: flightOffset,
+                    attachmentRotation: .zero,
+                    spinRotation: reduceMotion
+                        ? .zero
+                        : .radians(Double(releaseAngle) - 2 * .pi * salto),
+                    scale: 1 + (mouthScale - 1) * CGFloat(approachEase),
+                    scaleAnchor: .center
+                )
+            }
+
+            let plunge = min(1, max(0,
+                (phaseAge - mouthArrivalAge) / plungeDuration
+            ))
+            let plungeEase = smooth(plunge)
+            let plungeTravel = 0.25 * plunge + 0.75 * plunge * plunge
+            let finalScale = diveScale(side: side)
+            return BodyMotion(
+                offset: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)),
+                attachmentRotation: .zero,
+                spinRotation: reduceMotion
+                    ? .zero
+                    : .radians(Double(releaseAngle) - 2 * .pi),
+                scale: mouthScale + (finalScale - mouthScale) * CGFloat(plungeEase),
+                scaleAnchor: .center
+            )
+
+        case .timeUp:
+            guard phaseAge >= ClawConfig.timeUpRelease else {
+                return attachedBody
+            }
+            let duration = ClawConfig.timeUpDuration - ClawConfig.timeUpRelease
+            let raw = min(1, max(0, (phaseAge - ClawConfig.timeUpRelease) / duration))
+            let eased = smooth(raw)
+            let mouthX = bin.minX + bin.width * CatchBinArtwork.mouthX
+            let finalScale = diveScale(side: side)
+            return BodyMotion(
+                offset: CGSize(
+                    width: (mouthX - origin.x) * CGFloat(eased),
+                    height: (CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: bin)
+                             - origin.y) * CGFloat(raw * raw)
+                ),
+                attachmentRotation: .radians(Double(swing * CGFloat(1 - eased))),
+                spinRotation: .zero,
+                scale: 1 + (finalScale - 1) * CGFloat(eased)
+            )
+
+        default:
+            return attachedBody
+        }
+    }
+
+    private var attachedBody: BodyMotion {
+        BodyMotion(offset: .zero,
+                   attachmentRotation: .radians(Double(swing)),
+                   spinRotation: .zero,
+                   scale: 1)
+    }
+
+    private func diveScale(side: CGFloat) -> CGFloat {
+        max(0.58, min(0.72, bin.width / max(1, side * 0.72)))
+    }
+
+    private func interpolate(_ from: CGSize, _ to: CGSize, _ progress: CGFloat) -> CGSize {
+        CGSize(width: from.width + (to.width - from.width) * progress,
+               height: from.height + (to.height - from.height) * progress)
+    }
+
+    private func cubicHermite(
+        from: CGSize,
+        to: CGSize,
+        initialVelocity: CGSize,
+        finalVelocity: CGSize,
+        duration: CGFloat,
+        progress: CGFloat
+    ) -> CGSize {
+        let t2 = progress * progress
+        let t3 = t2 * progress
+        let fromWeight = 2 * t3 - 3 * t2 + 1
+        let initialVelocityWeight = t3 - 2 * t2 + progress
+        let toWeight = -2 * t3 + 3 * t2
+        let finalVelocityWeight = t3 - t2
+        return CGSize(
+            width: fromWeight * from.width
+                + initialVelocityWeight * duration * initialVelocity.width
+                + toWeight * to.width
+                + finalVelocityWeight * duration * finalVelocity.width,
+            height: fromWeight * from.height
+                + initialVelocityWeight * duration * initialVelocity.height
+                + toWeight * to.height
+                + finalVelocityWeight * duration * finalVelocity.height
+        )
+    }
+
+    /// A flexible two-curve rope makes acceleration travel through the line
+    /// instead of reading as a rigid diagonal attached to the hook.
+    private func swayingRope(to hook: CGPoint) -> some View {
+        let sway = sin(Double(swing))
+        let idleFlutter = sin(motionClock * 2.0) * 0.8
+        let start = CGPoint(x: hook.x - CGFloat(sway * 2.0), y: 9)
+        let end = CGPoint(x: hook.x, y: hook.y + 3)
+        let length = max(4, end.y - start.y)
+        let bend = CGFloat(sway) * min(isPad ? 28 : 21, length * 0.38) + CGFloat(idleFlutter)
+
+        return Path { path in
+            path.move(to: start)
+            path.addCurve(
+                to: end,
+                control1: CGPoint(x: start.x + bend * 0.35, y: start.y + length * 0.28),
+                control2: CGPoint(x: end.x - bend, y: start.y + length * 0.72)
+            )
+        }
+        .stroke(
+            LinearGradient(colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
+                                    Color(red: 0.22, green: 0.14, blue: 0.08)],
+                           startPoint: .top, endPoint: .bottom),
+            style: StrokeStyle(lineWidth: isPad ? 6 : 4.5, lineCap: .round)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 1.2, x: 1, y: 1)
+    }
+
+    private func hangingLayer(_ name: String) -> some View {
+        layerImage(name)
+            .resizable()
+            .interpolation(.medium)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func layerImage(_ name: String) -> Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.layer(name))
+#else
+        Image(name)
+#endif
+    }
+}
+
+private struct ClawJoystickChrome: View, Equatable {
+    let input: CGFloat
+    let palette: ClawPalette
+
+    var body: some View {
+        let leftLit = input < -0.18
+        let rightLit = input > 0.18
+        let tilt = Angle.degrees(Double(input) * JoystickArt.maxTilt)
+
+        return ZStack {
+            ZStack {
+                baseImage
+                    .resizable()
+                baseImage
+                    .renderingMode(.template)
+                    .resizable()
+                    .foregroundStyle(metalEdgeTint)
+                    .blendMode(.color)
+            }
+            .compositingGroup()
+            .shadow(color: palette.character.color.opacity(0.32), radius: 9)
+            .allowsHitTesting(false)
+
+            lightArrow(lit: leftLit, mirrored: false)
+            lightArrow(lit: rightLit, mirrored: true)
+
+            pokeImage
+                .resizable()
+                .rotationEffect(tilt, anchor: JoystickArt.pokeAnchor)
+                .compositingGroup()
+                .mask {
+                    PokeSocketMask()
+                }
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func lightArrow(lit: Bool, mirrored: Bool) -> some View {
+        arrowImage
+            .resizable()
+            .mask {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .frame(height: proxy.size.height * (236 / JoystickArt.canvas.height))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
+            }
+            .scaleEffect(x: mirrored ? -1 : 1, y: 1, anchor: JoystickArt.flipAnchor)
+            .opacity(lit ? 1 : 0)
+            .allowsHitTesting(false)
+    }
+
+    private var baseImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.joystickBase)
+#else
+        Image("base")
+#endif
+    }
+
+    private var metalEdgeTint: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: palette.character.color.opacity(0.46), location: 0),
+                .init(color: palette.character.color.opacity(0.18), location: 0.20),
+                .init(color: .clear, location: 0.36),
+                .init(color: .clear, location: 0.64),
+                .init(color: palette.character.color.opacity(0.18), location: 0.80),
+                .init(color: palette.character.color.opacity(0.46), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var pokeImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.poke)
+#else
+        Image("poke")
+#endif
+    }
+
+    private var arrowImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.lightArrow)
+#else
+        Image("light arrow")
+#endif
+    }
+}
+
+// MARK: - Nut pile
+
+/// One Canvas pass for the whole mound. Forty-plus SwiftUI walnuts, each with
+/// its own Gaussian blur, were the most expensive thing in the grab loop.
+private struct ClawNutPile: View {
+    enum Selection {
+        case resting
+        case held
+    }
+
+    let nuts: [ClawNutRuntime]
+    let highlightedIDs: Set<UUID>
+    let heldNutID: UUID?
+    let playOrigin: CGPoint
+    let selection: Selection
+    let isPad: Bool
+
+    var body: some View {
+        Canvas { context, _ in
+            let ordered = nuts
+                .filter { nut in
+                    guard nut.isPresent else { return false }
+                    switch selection {
+                    case .resting: return nut.id != heldNutID
+                    case .held: return nut.id == heldNutID
+                    }
+                }
+                .sorted { $0.rest.y > $1.rest.y }
+            for nut in ordered {
+                draw(nut,
+                     highlighted: highlightedIDs.contains(nut.id) && heldNutID != nut.id,
+                     in: &context)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func draw(_ nut: ClawNutRuntime, highlighted: Bool, in context: inout GraphicsContext) {
+        let visualWidth = max(18, nut.pixelRadius * 2.0 * ClawConfig.nutPackScale)
+        let visualHeight = visualWidth * ClawConfig.nutContentAspect
+        let imageWidth = visualWidth / ClawConfig.nutContentWidthFraction
+        let imageHeight = imageWidth / ClawConfig.nutCanvasAspect
+        let center = CGPoint(x: nut.position.x - playOrigin.x,
+                             y: nut.position.y - playOrigin.y)
+        let visualRect = CGRect(x: center.x - visualWidth / 2,
+                                y: center.y - visualHeight / 2,
+                                width: visualWidth,
+                                height: visualHeight)
+        let imageRect = CGRect(x: center.x - imageWidth / 2,
+                               y: center.y - imageHeight / 2,
+                               width: imageWidth,
+                               height: imageHeight)
+
+        var drawContext = context
+        if nut.rotation != 0 {
+            drawContext.translateBy(x: center.x, y: center.y)
+            drawContext.rotate(by: .radians(nut.rotation))
+            drawContext.translateBy(x: -center.x, y: -center.y)
+        }
+
+        drawContext.draw(nutImage, in: imageRect)
+
+        let textSize = min(ClawConfig.nutMaxTextSize(isPad: isPad),
+                           visualWidth * ClawConfig.nutTextWidthFraction(isPad: isPad))
+        drawContext.draw(
+            Text(verbatim: nut.spec.text)
+                .font(.system(size: textSize, weight: .black, design: .rounded))
+                .foregroundColor(Color(red: 0.14, green: 0.07, blue: 0.03)),
+            at: center,
+            anchor: .center
+        )
+
+        if highlighted {
+            let ring = Path(ellipseIn: visualRect.insetBy(dx: -visualWidth * 0.05,
+                                                          dy: -visualHeight * 0.05))
+            drawContext.stroke(ring,
+                               with: .color(Color(red: 1.0, green: 0.84, blue: 0.12)),
+                               lineWidth: 3.5)
+            let outer = Path(ellipseIn: visualRect.insetBy(dx: -visualWidth * 0.09,
+                                                           dy: -visualHeight * 0.09))
+            drawContext.stroke(outer,
+                               with: .color(Color(red: 1.0, green: 0.92, blue: 0.35).opacity(0.85)),
+                               lineWidth: 2)
+        }
+    }
+
+    private var nutImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.nut)
+#else
+        Image(ClawConfig.nutImageName)
+#endif
+    }
+}
+
+// MARK: - Cabinet & sanctuary
+
+private struct MachineCabinet: View, Equatable {
+    let palette: ClawPalette
+    let size: CGSize
+    let isPad: Bool
+
+    var body: some View {
+        ZStack {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.22, green: 0.12, blue: 0.05),
+                                        palette.woodDeep,
+                                        Color(red: 0.42, green: 0.26, blue: 0.12)],
+                               startPoint: .top, endPoint: .bottom)
+
+                VStack(spacing: size.height * 0.045) {
+                    ForEach(0..<14, id: \.self) { index in
+                        Rectangle()
+                            .fill(Color.white.opacity(index.isMultiple(of: 2) ? 0.03 : 0.015))
+                            .frame(height: 2)
+                    }
+                }
+            }
+            .drawingGroup(opaque: true)
+
+            HStack(spacing: 0) {
+                woodPost
+                Spacer(minLength: 0)
+                woodPost
+            }
+
+            VinesOverlay(palette: palette)
+                .allowsHitTesting(false)
+        }
+        .ignoresSafeArea(.all, edges: PromoTrailerRuntime.isActive ? [] : .all)
+    }
+
+    private var woodPost: some View {
+        let width = ClawConfig.cabinetPostWidth(size: size, isPad: isPad)
+        return ZStack {
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.78, green: 0.58, blue: 0.32),
+                                            palette.wood,
+                                            palette.woodDeep],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(palette.woodLight.opacity(0.45), lineWidth: 1.5)
+                        .padding(2)
+                }
+
+            Canvas { context, postSize in
+                for index in 0..<12 {
+                    let y = postSize.height * (0.04 + CGFloat(index) * 0.082)
+                    var grain = Path()
+                    grain.move(to: CGPoint(x: postSize.width * 0.18, y: y))
+                    grain.addCurve(
+                        to: CGPoint(x: postSize.width * 0.82, y: y + CGFloat(index % 3 - 1) * 3),
+                        control1: CGPoint(x: postSize.width * 0.34, y: y - 3),
+                        control2: CGPoint(x: postSize.width * 0.64, y: y + 4)
+                    )
+                    context.stroke(grain,
+                                   with: .color(palette.woodDeep.opacity(0.20)),
+                                   style: StrokeStyle(lineWidth: 1, lineCap: .round))
+                }
+            }
+
+            VStack {
+                postJoint(width: width, paw: true)
+                Spacer()
+                RopeBinding(width: width, palette: palette)
+                Spacer()
+                postJoint(width: width, paw: false)
+                Spacer()
+                RopeBinding(width: width, palette: palette)
+                Spacer()
+                postJoint(width: width, paw: true)
+            }
+            .padding(.vertical, size.height * 0.035)
+        }
+        .frame(width: width)
+        .shadow(color: .black.opacity(0.38), radius: 3, x: 0, y: 2)
+    }
+
+    private func postJoint(width: CGFloat, paw: Bool) -> some View {
+        ZStack {
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [palette.woodLight, palette.wood, palette.woodDeep],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: width * 1.06, height: max(10, width * 0.34))
+                .overlay {
+                    Capsule().stroke(.black.opacity(0.28), lineWidth: 1)
+                }
+            if paw {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: width * 0.32, weight: .bold))
+                    .foregroundStyle(palette.woodDeep.opacity(0.58))
+            } else {
+                HStack(spacing: width * 0.34) {
+                    Circle().fill(palette.woodDeep.opacity(0.66))
+                    Circle().fill(palette.woodDeep.opacity(0.66))
+                }
+                .frame(width: width * 0.72, height: 4)
+            }
+        }
+    }
+}
+
+/// One continuous fascia behind pause, prompt and timer. The controls still
+/// live in the HUD for input, but now read as instruments mounted into the same
+/// cabinet instead of three unrelated objects floating over a brown field.
+private struct CabinetTopAssembly: View, Equatable {
+    let palette: ClawPalette
+    let size: CGSize
+    let header: CGRect
+    let playTop: CGFloat
+    let isPad: Bool
+    var prompt: String = ""
+
+    var body: some View {
+        let height = max(playTop + (isPad ? 18 : 12), header.maxY + 12)
+        let post = max(isPad ? 38 : 26, size.width * 0.078)
+        let instrumentTop = max(isPad ? 18 : 44, header.minY - (isPad ? 16 : 11))
+        let instrumentHeight = header.height + (isPad ? 32 : 23)
+
+        ZStack(alignment: .topLeading) {
+            CabinetCanopyShape(drop: isPad ? 24 : 17)
+                .fill(
+                    LinearGradient(colors: [palette.woodLight,
+                                            palette.wood,
+                                            palette.woodDeep],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .overlay {
+                    CabinetCanopyShape(drop: isPad ? 24 : 17)
+                        .stroke(.black.opacity(0.46), lineWidth: isPad ? 4 : 3)
+                }
+
+            Canvas { context, canvasSize in
+                for index in 0..<7 {
+                    let y = canvasSize.height * (0.12 + CGFloat(index) * 0.105)
+                    var grain = Path()
+                    grain.move(to: CGPoint(x: post * 0.55, y: y))
+                    grain.addCurve(
+                        to: CGPoint(x: canvasSize.width - post * 0.55,
+                                    y: y + CGFloat(index % 3 - 1) * 2),
+                        control1: CGPoint(x: canvasSize.width * 0.32, y: y - 4),
+                        control2: CGPoint(x: canvasSize.width * 0.67, y: y + 4)
+                    )
+                    context.stroke(grain,
+                                   with: .color(palette.woodDeep.opacity(0.16)),
+                                   style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
+                }
+            }
+
+            RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [palette.character.deepColor.opacity(0.96),
+                                            Color.black.opacity(0.80)],
+                                   startPoint: .top,
+                                   endPoint: .bottom)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                        .stroke(
+                            LinearGradient(colors: [palette.woodLight,
+                                                    palette.wood,
+                                                    palette.woodDeep],
+                                           startPoint: .top,
+                                           endPoint: .bottom),
+                            lineWidth: isPad ? 7 : 5
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 20 : 14, style: .continuous)
+                        .inset(by: isPad ? 9 : 7)
+                        .stroke(.white.opacity(0.10), lineWidth: 1)
+                }
+                .overlay {
+                    if !prompt.isEmpty {
+                        Text(verbatim: prompt)
+                            .font(.system(size: isPad ? 44 : 28, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                            .minimumScaleFactor(0.45)
+                            .lineLimit(1)
+                            .padding(.horizontal, isPad ? 28 : 18)
+                    }
+                }
+                .frame(width: max(1, size.width - post * 1.38),
+                       height: instrumentHeight)
+                .position(x: size.width / 2,
+                          y: instrumentTop + instrumentHeight / 2)
+                .shadow(color: .black.opacity(0.40), radius: 5, y: 3)
+
+            HStack {
+                carvedEndCap(mirrored: false)
+                Spacer()
+                carvedEndCap(mirrored: true)
+            }
+            .padding(.horizontal, post * 0.64)
+            .padding(.top, instrumentTop + instrumentHeight * 0.30)
+
+            HStack {
+                fastener
+                Spacer()
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: isPad ? 18 : 13, weight: .black))
+                    .foregroundStyle(palette.woodDeep.opacity(0.52))
+                Spacer()
+                fastener
+            }
+            .padding(.horizontal, post * 0.48)
+            .padding(.top, height - (isPad ? 28 : 20))
+        }
+        .frame(width: size.width, height: height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func carvedEndCap(mirrored: Bool) -> some View {
+        HStack(spacing: isPad ? 5 : 3) {
+            Image(systemName: "leaf.fill")
+            Image(systemName: "leaf.fill")
+                .scaleEffect(0.72)
+                .rotationEffect(.degrees(36))
+        }
+        .font(.system(size: isPad ? 17 : 12, weight: .bold))
+        .foregroundStyle(palette.character.color.opacity(0.54))
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+    }
+
+    private var fastener: some View {
+        Circle()
+            .fill(palette.woodDeep)
+            .frame(width: isPad ? 10 : 7, height: isPad ? 10 : 7)
+            .overlay {
+                Capsule()
+                    .fill(palette.woodLight.opacity(0.72))
+                    .frame(width: isPad ? 7 : 5, height: 1)
+                    .rotationEffect(.degrees(-18))
+            }
+    }
+}
+
+private struct CabinetCanopyShape: Shape {
+    let drop: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let d = min(drop, rect.height * 0.24)
+        var path = Path()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - d))
+        path.addQuadCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                          control: CGPoint(x: rect.width * 0.76, y: rect.maxY - d * 0.15))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - d),
+                          control: CGPoint(x: rect.width * 0.24, y: rect.maxY - d * 0.15))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct RopeBinding: View {
+    let width: CGFloat
+    let palette: ClawPalette
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<4, id: \.self) { index in
+                Capsule()
+                    .stroke(
+                        LinearGradient(colors: [Color(red: 0.84, green: 0.67, blue: 0.35),
+                                                Color(red: 0.43, green: 0.27, blue: 0.10)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: max(2, width * 0.075)
+                    )
+                    .frame(width: width * 1.04, height: width * 0.20)
+                    .offset(y: CGFloat(index - 2) * width * 0.09)
+            }
+            Circle()
+                .fill(Color(red: 0.49, green: 0.30, blue: 0.11))
+                .frame(width: width * 0.22, height: width * 0.22)
+                .overlay(Circle().stroke(palette.woodLight.opacity(0.45), lineWidth: 1))
+                .offset(x: width * 0.38, y: width * 0.08)
+        }
+        .frame(height: width * 0.58)
+    }
+}
+
+private struct VinesOverlay: View {
+    let palette: ClawPalette
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Canvas { context, size in
+                    drawVine(context: &context, size: size, x: size.width * 0.04, lean: 1)
+                    drawVine(context: &context, size: size, x: size.width * 0.96, lean: -1)
+                }
+                vineLeaves(width: proxy.size.width, height: proxy.size.height, lean: -1, x: 0.04)
+                vineLeaves(width: proxy.size.width, height: proxy.size.height, lean: 1, x: 0.96)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawVine(context: inout GraphicsContext, size: CGSize, x: CGFloat, lean: CGFloat) {
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: size.height * 0.06))
+        path.addCurve(to: CGPoint(x: x + lean * 5, y: size.height * 0.42),
+                      control1: CGPoint(x: x - lean * 22, y: size.height * 0.17),
+                      control2: CGPoint(x: x + lean * 25, y: size.height * 0.29))
+        path.addCurve(to: CGPoint(x: x + lean * 10, y: size.height * 0.92),
+                      control1: CGPoint(x: x - lean * 28, y: size.height * 0.58),
+                      control2: CGPoint(x: x + lean * 27, y: size.height * 0.75))
+        context.stroke(path,
+                       with: .linearGradient(
+                           Gradient(colors: [palette.leafLight, palette.leaf, palette.woodDeep]),
+                           startPoint: CGPoint(x: x, y: 0),
+                           endPoint: CGPoint(x: x, y: size.height)
+                       ),
+                       style: StrokeStyle(lineWidth: 5.5, lineCap: .round))
+
+        // Loose spiral tendrils make the greenery feel grown around the frame,
+        // rather than pasted on as a straight decorative stripe.
+        for index in 0..<5 {
+            let cy = size.height * (0.12 + CGFloat(index) * 0.17)
+            let radius = CGFloat(8 + index % 2 * 4)
+            var curl = Path()
+            curl.move(to: CGPoint(x: x, y: cy))
+            curl.addCurve(to: CGPoint(x: x + lean * radius * 0.25, y: cy + radius * 1.8),
+                          control1: CGPoint(x: x + lean * radius * 1.8, y: cy - radius),
+                          control2: CGPoint(x: x + lean * radius * 2.0, y: cy + radius * 2.0))
+            curl.addCurve(to: CGPoint(x: x + lean * radius * 0.65, y: cy + radius * 0.75),
+                          control1: CGPoint(x: x - lean * radius * 0.9, y: cy + radius * 1.75),
+                          control2: CGPoint(x: x - lean * radius * 0.7, y: cy + radius * 0.55))
+            context.stroke(curl,
+                           with: .color(palette.leaf.opacity(0.82)),
+                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+        }
+    }
+
+    private func vineLeaves(width: CGFloat, height: CGFloat, lean: CGFloat, x: CGFloat) -> some View {
+        ForEach(0..<8, id: \.self) { index in
+            let y = height * (0.10 + CGFloat(index) * 0.10)
+            ZStack {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: index.isMultiple(of: 2) ? 26 : 18, weight: .bold))
+                    .foregroundStyle(LinearGradient(colors: [palette.leafLight, palette.leaf],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "leaf")
+                    .font(.system(size: index.isMultiple(of: 2) ? 20 : 13, weight: .thin))
+                    .foregroundStyle(.white.opacity(0.22))
+            }
+            .rotationEffect(.degrees(Double(22 * lean + (index.isMultiple(of: 2) ? -14 : 16))))
+            .shadow(color: .black.opacity(0.25), radius: 2, y: 2)
+            .position(x: width * x + lean * CGFloat(8 + index % 3 * 4), y: y)
+        }
+    }
+}
+
+/// A very small living layer over the carved posts. It is deliberately kept
+/// separate from the rasterised cabinet so the rest of the scenery stays cheap.
+private struct CabinetLivingDetails: View {
+    let palette: ClawPalette
+    let reduceMotion: Bool
+    var isActive: Bool = true
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 18.0, paused: reduceMotion || !isActive)) { timeline in
+            GeometryReader { proxy in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                let sway = reduceMotion ? 0 : sin(time * 0.78) * 3.2
+                ZStack {
+                    leafCluster(mirrored: false)
+                        .rotationEffect(.degrees(sway), anchor: .bottom)
+                        .position(x: proxy.size.width * 0.055, y: proxy.size.height * 0.18)
+                    leafCluster(mirrored: true)
+                        .rotationEffect(.degrees(-sway * 0.82), anchor: .bottom)
+                        .position(x: proxy.size.width * 0.945, y: proxy.size.height * 0.72)
+                }
+            }
+        }
+        .ignoresSafeArea(.all, edges: PromoTrailerRuntime.isActive ? [] : .all)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func leafCluster(mirrored: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            ForEach(0..<3, id: \.self) { index in
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 16 + CGFloat(index) * 4, weight: .bold))
+                    .foregroundStyle(index == 0 ? palette.leafLight : palette.leaf)
+                    .rotationEffect(.degrees(Double(index * 34 - 30)))
+                    .offset(x: CGFloat(index - 1) * 10, y: -CGFloat(index % 2) * 5)
+            }
+        }
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+        .shadow(color: .black.opacity(0.24), radius: 2, y: 2)
+    }
+}
+
+private struct SanctuaryScene: View, Equatable {
+    let palette: ClawPalette
+    let character: AnimalCharacter
+    let isPad: Bool
+
+    var body: some View {
+        Group {
+            if character.id == "elephant" {
+                SavannaHabitatArtwork(palette: palette, character: character, isPad: isPad)
+            } else {
+                AnimalHabitatArtwork(palette: palette, character: character, isPad: isPad)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Side walls, ceiling and a darker back panel create a real room behind
+    /// the glass. Their converging edges remain readable even when the walnut
+    /// pile covers the lower half of the sanctuary.
+    private var recessedRoom: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            let inset = w * (isPad ? 0.105 : 0.09)
+            ZStack {
+                Path { path in
+                    path.move(to: .zero)
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.88))
+                    path.addLine(to: CGPoint(x: 0, y: h))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(colors: [palette.woodDeep.opacity(0.80),
+                                            character.deepColor.opacity(0.24)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+
+                Path { path in
+                    path.move(to: CGPoint(x: w, y: 0))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.88))
+                    path.addLine(to: CGPoint(x: w, y: h))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(colors: [character.deepColor.opacity(0.25),
+                                            palette.woodDeep.opacity(0.84)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+
+                Path { path in
+                    path.move(to: .zero)
+                    path.addLine(to: CGPoint(x: w, y: 0))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.10))
+                    path.closeSubpath()
+                }
+                .fill(LinearGradient(colors: [palette.woodDeep, palette.wood],
+                                     startPoint: .top, endPoint: .bottom))
+
+                RoundedRectangle(cornerRadius: isPad ? 18 : 12, style: .continuous)
+                    .stroke(character.deepColor.opacity(0.18), lineWidth: isPad ? 3 : 2)
+                    .padding(.horizontal, inset)
+                    .padding(.top, h * 0.095)
+                    .padding(.bottom, h * 0.115)
+                    .shadow(color: .black.opacity(0.18), radius: 6)
+            }
+        }
+    }
+
+    private var ceilingBeams: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(0..<4, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(
+                            LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
+                        .frame(width: proxy.size.width * 0.22,
+                               height: isPad ? 8 : 5)
+                        .rotationEffect(.degrees(index < 2 ? 8 : -8))
+                        .position(x: proxy.size.width * (0.17 + CGFloat(index) * 0.22),
+                                  y: proxy.size.height * 0.065)
+                        .shadow(color: .black.opacity(0.28), radius: 2, y: 2)
+                }
+            }
+        }
+    }
+
+    private var hangingLamps: some View {
+        HStack {
+            lamp
+            Spacer()
+            lamp
+        }
+        .padding(.horizontal, isPad ? 48 : 28)
+        .padding(.top, isPad ? 6 : 4)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var lamp: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(palette.woodDeep)
+                .frame(width: 2, height: isPad ? 16 : 10)
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [Color(red: 1.0, green: 0.92, blue: 0.62),
+                                            Color(red: 0.92, green: 0.70, blue: 0.28)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: isPad ? 22 : 16, height: isPad ? 14 : 10)
+            Circle()
+                .fill(
+                    RadialGradient(colors: [Color.yellow.opacity(0.32), Color.yellow.opacity(0)],
+                                   center: .center,
+                                   startRadius: 2,
+                                   endRadius: isPad ? 27 : 19)
+                )
+                .frame(width: isPad ? 54 : 38, height: isPad ? 54 : 38)
+                .offset(y: -8)
+        }
+    }
+
+    private var tireSwing: some View {
+        GeometryReader { proxy in
+            let origin = CGPoint(x: proxy.size.width * 0.30, y: proxy.size.height * 0.02)
+            let rest = CGPoint(x: proxy.size.width * 0.28, y: proxy.size.height * 0.28)
+            Path { path in
+                path.move(to: origin)
+                path.addLine(to: rest)
+            }
+            .stroke(palette.woodDeep.opacity(0.7), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            Circle()
+                .stroke(Color(red: 0.18, green: 0.14, blue: 0.10), lineWidth: isPad ? 8 : 6)
+                .frame(width: isPad ? 36 : 26, height: isPad ? 36 : 26)
+                .position(rest)
+        }
+    }
+
+    /// Large, readable furniture replaces the former collection of tiny signs
+    /// and icon-sized huts. Each object occupies real floor or wall space and
+    /// overlaps another depth plane, so the chamber reads as a habitat at a
+    /// glance even behind the walnut pile.
+    private var habitatArchitecture: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack {
+                outdoorOpening
+                    .frame(width: w * 0.42, height: h * 0.48)
+                    .position(x: w * 0.51, y: h * 0.37)
+
+                feedingStation
+                    .frame(width: w * 0.22, height: h * 0.42)
+                    .position(x: w * 0.16, y: h * 0.48)
+
+                animalShelter
+                    .frame(width: w * 0.24, height: h * 0.34)
+                    .position(x: w * 0.78, y: h * 0.49)
+
+                climbingNet
+                    .frame(width: w * 0.19, height: h * 0.23)
+                    .position(x: w * 0.82, y: h * 0.28)
+
+                enrichmentToys
+                    .frame(width: w * 0.30, height: h * 0.13)
+                    .position(x: w * 0.66, y: h * 0.73)
+
+                habitatFloorZone
+                    .frame(width: w * 0.24, height: h * 0.10)
+                    .position(x: w * 0.27, y: h * 0.76)
+            }
+        }
+    }
+
+    private var outdoorOpening: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                         bottomLeading: w * 0.08,
+                                                         bottomTrailing: w * 0.08,
+                                                         topTrailing: w * 0.46),
+                                       style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [character.skyColor,
+                                                character.tintColor,
+                                                palette.leafLight.opacity(0.74)],
+                                       startPoint: .top,
+                                       endPoint: .bottom)
+                    )
+
+                Circle()
+                    .fill(.white.opacity(0.56))
+                    .frame(width: w * 0.20, height: w * 0.20)
+                    .position(x: w * 0.69, y: h * 0.25)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Ellipse()
+                        .fill(index == 0 ? palette.leafLight.opacity(0.72)
+                                         : palette.leaf.opacity(0.82))
+                        .frame(width: w * (0.72 - CGFloat(index) * 0.12),
+                               height: h * (0.32 - CGFloat(index) * 0.05))
+                        .offset(x: CGFloat(index - 1) * w * 0.20,
+                                y: h * (0.10 + CGFloat(index) * 0.035))
+                }
+
+                HStack(alignment: .bottom, spacing: w * 0.04) {
+                    ForEach(0..<5, id: \.self) { index in
+                        Capsule()
+                            .fill(palette.woodDeep.opacity(0.62))
+                            .frame(width: w * 0.045,
+                                   height: h * (0.18 + CGFloat(index % 3) * 0.06))
+                            .overlay(alignment: .top) {
+                                Circle()
+                                    .fill(palette.leaf)
+                                    .frame(width: w * 0.14, height: w * 0.12)
+                            }
+                    }
+                }
+                .padding(.bottom, h * 0.05)
+
+                HStack(alignment: .top, spacing: -w * 0.035) {
+                    ForEach(0..<7, id: \.self) { index in
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: w * (0.14 + CGFloat(index % 2) * 0.035),
+                                          weight: .bold))
+                            .foregroundStyle(index.isMultiple(of: 2)
+                                             ? palette.leafLight
+                                             : palette.leaf)
+                            .rotationEffect(.degrees(Double(index * 27 - 78)))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .offset(y: -h * 0.035)
+            }
+            .clipShape(UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                                  bottomLeading: w * 0.08,
+                                                                  bottomTrailing: w * 0.08,
+                                                                  topTrailing: w * 0.46),
+                                                style: .continuous))
+            .overlay {
+                UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                          bottomLeading: w * 0.08,
+                                                          bottomTrailing: w * 0.08,
+                                                          topTrailing: w * 0.46),
+                                       style: .continuous)
+                    .stroke(
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.wood,
+                                                palette.woodDeep],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing),
+                        lineWidth: isPad ? 11 : 7
+                    )
+            }
+            .overlay(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(height: isPad ? 17 : 11)
+                    .offset(y: isPad ? 6 : 4)
+            }
+            .shadow(color: .black.opacity(0.30), radius: 6, y: 4)
+        }
+    }
+
+    private var feedingStation: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                Capsule()
+                    .fill(
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.wood,
+                                                palette.woodDeep],
+                                       startPoint: .leading,
+                                       endPoint: .trailing)
+                    )
+                    .frame(width: w * 0.24, height: h * 0.94)
+                    .overlay {
+                        VStack(spacing: h * 0.12) {
+                            ForEach(0..<4, id: \.self) { _ in
+                                Capsule()
+                                    .fill(palette.woodDeep.opacity(0.24))
+                                    .frame(width: w * 0.16, height: 1.5)
+                            }
+                        }
+                    }
+
+                VStack(spacing: h * 0.08) {
+                    feederShelf(width: w, foodCount: 3)
+                    feederShelf(width: w * 0.86, foodCount: 2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, h * 0.12)
+
+                RopeBinding(width: w * 0.34, palette: palette)
+                    .offset(y: -h * 0.21)
+            }
+            .shadow(color: .black.opacity(0.28), radius: 4, y: 3)
+        }
+    }
+
+    private func feederShelf(width: CGFloat, foodCount: Int) -> some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: width * 0.92, height: isPad ? 13 : 8)
+                .shadow(color: .black.opacity(0.24), radius: 2, y: 2)
+            HStack(spacing: width * 0.04) {
+                ForEach(0..<foodCount, id: \.self) { index in
+                    ZStack {
+                        Circle()
+                            .fill(index.isMultiple(of: 2) ? character.color : palette.leafLight)
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: isPad ? 8 : 5, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.70))
+                    }
+                    .frame(width: width * 0.18, height: width * 0.18)
+                }
+            }
+            .offset(y: -(width * 0.12))
+        }
+    }
+
+    private var animalShelter: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: h * 0.29))
+                    path.addLine(to: CGPoint(x: w * 0.50, y: 0))
+                    path.addLine(to: CGPoint(x: w, y: h * 0.29))
+                    path.addLine(to: CGPoint(x: w * 0.88, y: h * 0.37))
+                    path.addLine(to: CGPoint(x: w * 0.50, y: h * 0.15))
+                    path.addLine(to: CGPoint(x: w * 0.12, y: h * 0.37))
+                    path.closeSubpath()
+                }
+                .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .shadow(color: .black.opacity(0.30), radius: 4, y: 3)
+
+                RoundedRectangle(cornerRadius: isPad ? 13 : 9, style: .continuous)
+                    .fill(LinearGradient(colors: [palette.wood, palette.woodDeep],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: w * 0.82, height: h * 0.70)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 22 : 15, style: .continuous)
+                            .fill(Color.black.opacity(0.55))
+                            .padding(.horizontal, w * 0.14)
+                            .padding(.top, h * 0.18)
+                            .padding(.bottom, h * 0.08)
+                    }
+                    .overlay(alignment: .bottom) {
+                        Capsule()
+                            .fill(character.color.opacity(0.72))
+                            .frame(width: w * 0.58, height: h * 0.16)
+                            .padding(.bottom, h * 0.07)
+                    }
+
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: min(w, h) * 0.22, weight: .black))
+                    .foregroundStyle(palette.woodLight.opacity(0.72))
+                    .offset(y: -h * 0.36)
+            }
+        }
+    }
+
+    private var enrichmentToys: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: h * 0.18, style: .continuous)
+                    .fill(palette.woodDeep.opacity(0.80))
+                    .frame(height: h * 0.28)
+                HStack(alignment: .bottom, spacing: w * 0.025) {
+                    ForEach(0..<4, id: \.self) { index in
+                        ZStack {
+                            Circle()
+                                .fill(index.isMultiple(of: 2) ? character.color : palette.leafLight)
+                            Circle()
+                                .stroke(.white.opacity(0.35), lineWidth: 1)
+                                .padding(3)
+                            Image(systemName: index == 1 ? "leaf.fill" : "pawprint.fill")
+                                .font(.system(size: h * 0.18, weight: .bold))
+                                .foregroundStyle(character.skyColor.opacity(0.82))
+                        }
+                        .frame(width: h * (0.48 + CGFloat(index % 2) * 0.14),
+                               height: h * (0.48 + CGFloat(index % 2) * 0.14))
+                        .rotationEffect(.degrees(Double(index * 11 - 16)))
+                    }
+                }
+                .padding(.bottom, h * 0.12)
+            }
+            .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+        }
+    }
+
+    private var climbingNet: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack {
+                RoundedRectangle(cornerRadius: isPad ? 8 : 5, style: .continuous)
+                    .stroke(
+                        LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: isPad ? 7 : 4.5
+                    )
+                Canvas { context, size in
+                    let rope = Color(red: 0.72, green: 0.53, blue: 0.27).opacity(0.82)
+                    for index in -2...4 {
+                        var down = Path()
+                        down.move(to: CGPoint(x: CGFloat(index) * size.width * 0.24, y: 0))
+                        down.addLine(to: CGPoint(x: CGFloat(index + 3) * size.width * 0.24,
+                                                 y: size.height))
+                        context.stroke(down, with: .color(rope), lineWidth: isPad ? 2.4 : 1.6)
+
+                        var up = Path()
+                        up.move(to: CGPoint(x: CGFloat(index) * size.width * 0.24,
+                                           y: size.height))
+                        up.addLine(to: CGPoint(x: CGFloat(index + 3) * size.width * 0.24, y: 0))
+                        context.stroke(up, with: .color(rope), lineWidth: isPad ? 2.4 : 1.6)
+                    }
+                }
+                .padding(isPad ? 7 : 5)
+
+                VStack {
+                    HStack {
+                        ropeKnot
+                        Spacer()
+                        ropeKnot
+                    }
+                    Spacer()
+                    HStack {
+                        ropeKnot
+                        Spacer()
+                        ropeKnot
+                    }
+                }
+                .padding(isPad ? 5 : 3)
+
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: min(w, h) * 0.22, weight: .black))
+                    .foregroundStyle(character.color)
+                    .padding(min(w, h) * 0.10)
+                    .background(character.skyColor.opacity(0.92), in: Circle())
+                    .shadow(color: .black.opacity(0.24), radius: 3, y: 2)
+            }
+            .rotationEffect(.degrees(3))
+            .shadow(color: .black.opacity(0.25), radius: 4, y: 3)
+        }
+    }
+
+    private var ropeKnot: some View {
+        Circle()
+            .fill(Color(red: 0.49, green: 0.30, blue: 0.11))
+            .frame(width: isPad ? 9 : 6, height: isPad ? 9 : 6)
+            .overlay(Circle().stroke(palette.woodLight.opacity(0.60), lineWidth: 1))
+    }
+
+    private var habitatFloorZone: some View {
+        let aquatic = ["octopus", "crab", "frog", "penguin"].contains(character.id)
+        return ZStack {
+            Capsule()
+                .fill(
+                    aquatic
+                        ? LinearGradient(colors: [character.skyColor, character.color.opacity(0.55)],
+                                         startPoint: .top, endPoint: .bottom)
+                        : LinearGradient(colors: [Color(red: 0.56, green: 0.37, blue: 0.17),
+                                                 Color(red: 0.29, green: 0.18, blue: 0.08)],
+                                         startPoint: .top, endPoint: .bottom)
+                )
+                .overlay(Capsule().stroke(.white.opacity(0.28), lineWidth: 1))
+            Image(systemName: aquatic ? "water.waves" : "leaf.fill")
+                .font(.system(size: isPad ? 18 : 12, weight: .bold))
+                .foregroundStyle(aquatic ? character.deepColor : palette.leafLight)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 3, y: 2)
+    }
+
+    private var habitatNook: some View {
+        GeometryReader { proxy in
+            let aquatic = ["octopus", "crab", "frog", "penguin"].contains(character.id)
+            ZStack {
+                if aquatic {
+                    Ellipse()
+                        .fill(
+                            RadialGradient(colors: [character.skyColor.opacity(0.85),
+                                                    character.color.opacity(0.34),
+                                                    character.deepColor.opacity(0.18)],
+                                           center: .center,
+                                           startRadius: 2,
+                                           endRadius: isPad ? 72 : 50)
+                        )
+                        .overlay(Ellipse().stroke(.white.opacity(0.42), lineWidth: 1.5))
+                        .frame(width: isPad ? 116 : 78, height: isPad ? 34 : 23)
+                    Image(systemName: character.id == "penguin" ? "snowflake" : "water.waves")
+                        .font(.system(size: isPad ? 23 : 15, weight: .bold))
+                        .foregroundStyle(character.deepColor.opacity(0.70))
+                } else {
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: isPad ? 20 : 13, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [palette.woodDeep,
+                                                        Color(red: 0.13, green: 0.08, blue: 0.04)],
+                                               startPoint: .top, endPoint: .bottom)
+                            )
+                            .frame(width: isPad ? 118 : 80, height: isPad ? 66 : 44)
+                            .overlay(alignment: .top) {
+                                Capsule()
+                                    .fill(character.color.opacity(0.58))
+                                    .frame(width: isPad ? 88 : 58, height: isPad ? 17 : 11)
+                                    .padding(.top, isPad ? 38 : 25)
+                            }
+                        Image(systemName: "pawprint.fill")
+                            .font(.system(size: isPad ? 21 : 14, weight: .bold))
+                            .foregroundStyle(palette.woodLight.opacity(0.52))
+                            .padding(.bottom, isPad ? 29 : 19)
+                    }
+                }
+            }
+            .position(x: proxy.size.width * 0.18, y: proxy.size.height * 0.69)
+            .shadow(color: .black.opacity(0.24), radius: 4, y: 3)
+        }
+    }
+
+    private var foregroundPlants: some View {
+        GeometryReader { proxy in
+            HStack(alignment: .bottom) {
+                plantCluster(mirrored: false)
+                Spacer()
+                plantCluster(mirrored: true)
+            }
+            .padding(.horizontal, isPad ? 8 : 4)
+            .padding(.bottom, isPad ? 26 : 18)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
+        }
+    }
+
+    private func plantCluster(mirrored: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            Capsule()
+                .fill(LinearGradient(colors: [palette.wood, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: isPad ? 48 : 34, height: isPad ? 24 : 17)
+            ForEach(0..<4, id: \.self) { index in
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: (isPad ? 25 : 17) + CGFloat(index % 2) * 5,
+                                  weight: .bold))
+                    .foregroundStyle(index.isMultiple(of: 2) ? palette.leafLight : palette.leaf)
+                    .rotationEffect(.degrees(Double(index * 31 - 48)))
+                    .offset(x: CGFloat(index - 2) * (isPad ? 9 : 6),
+                            y: -(isPad ? 15 : 10) - CGFloat(index % 2) * 5)
+            }
+        }
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+        .shadow(color: .black.opacity(0.25), radius: 2, y: 2)
+    }
+
+    private var pawWall: some View {
+        GeometryReader { proxy in
+            ForEach(0..<6, id: \.self) { index in
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: isPad ? 20 : 14, weight: .bold))
+                    .foregroundStyle(palette.woodDeep.opacity(0.10))
+                    .rotationEffect(.degrees(Double(index * 27 - 20)))
+                    .position(x: proxy.size.width * (0.22 + CGFloat(index % 3) * 0.28),
+                              y: proxy.size.height * (0.14 + CGFloat(index / 3) * 0.16))
+            }
+        }
+    }
+
+    private var window: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: isPad ? 48 : 36, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.72, green: 0.88, blue: 0.98),
+                                            Color(red: 0.40, green: 0.66, blue: 0.88)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: isPad ? 96 : 64, height: isPad ? 108 : 72)
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 48 : 36, style: .continuous)
+                        .stroke(palette.wood, lineWidth: isPad ? 7 : 5)
+                }
+                .overlay {
+                    Rectangle().fill(.white.opacity(0.22)).frame(width: 3)
+                }
+                .overlay(alignment: .bottom) {
+                    HStack(alignment: .bottom, spacing: 1) {
+                        ForEach(0..<5, id: \.self) { index in
+                            Capsule()
+                                .fill(character.deepColor.opacity(0.25))
+                                .frame(width: isPad ? 8 : 5,
+                                       height: (isPad ? 18 : 12) + CGFloat(index % 3) * 5)
+                        }
+                    }
+                    .padding(.bottom, isPad ? 9 : 6)
+                }
+            Circle()
+                .fill(.white.opacity(0.45))
+                .frame(width: isPad ? 20 : 14, height: isPad ? 20 : 14)
+                .offset(x: isPad ? -16 : -11, y: isPad ? -20 : -14)
+        }
+        .shadow(color: Color.yellow.opacity(0.18), radius: 10)
+    }
+
+    private var birdhouse: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "chevron.up")
+                .font(.system(size: isPad ? 22 : 16, weight: .black))
+                .foregroundStyle(palette.woodDeep)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(LinearGradient(colors: [palette.woodLight, palette.wood],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: isPad ? 52 : 38, height: isPad ? 40 : 30)
+                .overlay {
+                    Circle()
+                        .fill(Color(red: 0.16, green: 0.10, blue: 0.05).opacity(0.45))
+                        .frame(width: isPad ? 16 : 12, height: isPad ? 16 : 12)
+                        .offset(y: 4)
+                }
+            Image(systemName: "bird.fill")
+                .font(.system(size: isPad ? 14 : 11, weight: .bold))
+                .foregroundStyle(character.color)
+                .offset(y: -12)
+        }
+    }
+
+    private var catCubby: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(LinearGradient(colors: [palette.woodLight, palette.wood],
+                                 startPoint: .top, endPoint: .bottom))
+            .frame(width: isPad ? 74 : 54, height: isPad ? 60 : 44)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(red: 0.14, green: 0.08, blue: 0.04).opacity(0.38))
+                    .padding(7)
+            }
+            .overlay {
+                Image(systemName: "cat.fill")
+                    .font(.system(size: isPad ? 22 : 16, weight: .bold))
+                    .foregroundStyle(Color(red: 0.94, green: 0.55, blue: 0.18))
+                    .offset(y: 5)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(palette.woodDeep.opacity(0.4), lineWidth: 1.5)
+            }
+    }
+
+    private var homePoster: some View {
+        VStack(spacing: 3) {
+            Text("game.claw.sign.home")
+                .font(.system(size: isPad ? 10 : 7, weight: .heavy, design: .rounded))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.65)
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: isPad ? 18 : 13, weight: .bold))
+                .foregroundStyle(palette.leaf)
+        }
+        .foregroundStyle(palette.woodDeep)
+        .padding(7)
+        .frame(width: isPad ? 76 : 54)
+        .background(Color(red: 0.97, green: 0.94, blue: 0.86), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(palette.woodDeep.opacity(0.28), lineWidth: 1)
+        }
+        .rotationEffect(.degrees(5))
+    }
+
+    private var warningSign: some View {
+        Text("game.claw.sign.danger")
+            .font(.system(size: isPad ? 9 : 7, weight: .heavy, design: .rounded))
+            .foregroundStyle(palette.woodDeep)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.6)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(Color(red: 0.98, green: 0.86, blue: 0.34), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(palette.woodDeep.opacity(0.4), lineWidth: 1)
+            }
+            .rotationEffect(.degrees(-8))
+    }
+
+    private var woodenFloor: some View {
+        LinearGradient(colors: [Color(red: 0.58, green: 0.38, blue: 0.18),
+                                Color(red: 0.36, green: 0.20, blue: 0.08)],
+                       startPoint: .top, endPoint: .bottom)
+            .overlay {
+                GeometryReader { proxy in
+                    ForEach(0..<9, id: \.self) { index in
+                        Path { path in
+                            let x = proxy.size.width * CGFloat(index) / 8
+                            path.move(to: CGPoint(x: proxy.size.width / 2, y: 0))
+                            path.addLine(to: CGPoint(x: x, y: proxy.size.height))
+                        }
+                        .stroke(Color.black.opacity(0.14), lineWidth: 1)
+                    }
+                }
+            }
+    }
+}
+
+/// A fully procedural habitat backdrop. Every coordinate is expressed as a
+/// fraction of the chamber, so the same composition works on compact phones,
+/// tall phones and iPad without loading or cropping a background asset.
+struct SavannaHabitatArtwork: View, Equatable {
+    let palette: ClawPalette
+    let character: AnimalCharacter
+    let isPad: Bool
+
+    private let skyTop = Color(red: 0.48, green: 0.79, blue: 0.93)
+    private let skyHaze = Color(red: 0.91, green: 0.88, blue: 0.68)
+    private let sandLight = Color(red: 0.76, green: 0.61, blue: 0.34)
+    private let sandDeep = Color(red: 0.42, green: 0.28, blue: 0.12)
+    private let bark = Color(red: 0.34, green: 0.19, blue: 0.075)
+    private let barkLight = Color(red: 0.61, green: 0.39, blue: 0.16)
+    private let savannaGreen = Color(red: 0.30, green: 0.43, blue: 0.11)
+    private let leafLight = Color(red: 0.50, green: 0.60, blue: 0.18)
+    private let water = Color(red: 0.18, green: 0.62, blue: 0.76)
+
+    var body: some View {
+        Canvas { context, size in
+            paintSky(in: &context, size: size)
+            paintDistantSavanna(in: &context, size: size)
+            paintGround(in: &context, size: size)
+            paintSandSurface(in: &context, size: size)
+            paintWaterhole(in: &context, size: size)
+            paintWaterEdgeDetails(in: &context, size: size)
+            paintGroundDetails(in: &context, size: size)
+            paintFieldVegetation(in: &context, size: size)
+            paintTreesAndCanopy(in: &context, size: size)
+            // The tyre belongs to the rasterised habitat, permanently behind
+            // the elephant. Keeping it out of the frame-driven Canvas prevents
+            // overlap from ever changing its position or compositing cadence.
+            paintTireSwing(in: &context, size: size)
+            // Habitat structures sit inside the cabinet, in front of the
+            // framing trees. This overlap is important for believable depth.
+            paintHabitatFurniture(in: &context, size: size)
+            paintForeground(in: &context, size: size)
+        }
+        .overlay {
+            // A restrained glass tint unifies the scenery without washing out
+            // the black answer labels on the walnut pile.
+            LinearGradient(colors: [.white.opacity(0.08),
+                                    .clear,
+                                    palette.woodDeep.opacity(0.035)],
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+        }
+    }
+
+    private func paintSky(in context: inout GraphicsContext, size: CGSize) {
+        context.fill(
+            Path(CGRect(origin: .zero, size: size)),
+            with: .linearGradient(
+                Gradient(colors: [skyTop, character.skyColor.opacity(0.76), skyHaze]),
+                startPoint: CGPoint(x: size.width * 0.35, y: 0),
+                endPoint: CGPoint(x: size.width * 0.58, y: size.height * 0.58)
+            )
+        )
+
+        // Keep the hazy savanna sun clear of the right canopy: slightly lower
+        // and closer to centre lets its full disc remain visible.
+        let sun = CGRect(x: size.width * 0.60,
+                         y: size.height * 0.195,
+                         width: size.width * 0.135,
+                         height: size.width * 0.135)
+        context.fill(Path(ellipseIn: sun.insetBy(dx: -sun.width * 0.8, dy: -sun.height * 0.8)),
+                     with: .radialGradient(
+                        Gradient(colors: [Color.white.opacity(0.32), .clear]),
+                        center: CGPoint(x: sun.midX, y: sun.midY),
+                        startRadius: 2,
+                        endRadius: sun.width * 1.25
+                     ))
+        context.fill(Path(ellipseIn: sun), with: .color(Color(red: 1, green: 0.91, blue: 0.55).opacity(0.72)))
+
+        // Thin, irregular cloud strokes add atmospheric scale while keeping
+        // the centre quiet for the hanging character.
+        let clouds: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.17, 0.26, 0.18, 0.020), (0.54, 0.19, 0.14, 0.015),
+            (0.72, 0.31, 0.20, 0.018), (0.39, 0.34, 0.11, 0.012)
+        ]
+        for (index, cloud) in clouds.enumerated() {
+            var path = Path()
+            let x = size.width * cloud.0
+            let y = size.height * cloud.1
+            let width = size.width * cloud.2
+            path.move(to: CGPoint(x: x - width * 0.50, y: y))
+            path.addCurve(to: CGPoint(x: x + width * 0.50, y: y),
+                          control1: CGPoint(x: x - width * 0.24, y: y - size.height * cloud.3),
+                          control2: CGPoint(x: x + width * 0.20, y: y + size.height * cloud.3 * 0.35))
+            context.stroke(path,
+                           with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.24 : 0.16)),
+                           style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.8, lineCap: .round))
+        }
+    }
+
+    private func paintDistantSavanna(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let horizon = h * 0.43
+
+        var mountains = Path()
+        mountains.move(to: CGPoint(x: 0, y: horizon + h * 0.05))
+        mountains.addLine(to: CGPoint(x: w * 0.18, y: horizon - h * 0.035))
+        mountains.addLine(to: CGPoint(x: w * 0.31, y: horizon + h * 0.01))
+        mountains.addLine(to: CGPoint(x: w * 0.51, y: horizon - h * 0.055))
+        mountains.addLine(to: CGPoint(x: w * 0.67, y: horizon + h * 0.005))
+        mountains.addLine(to: CGPoint(x: w * 0.84, y: horizon - h * 0.025))
+        mountains.addLine(to: CGPoint(x: w, y: horizon + h * 0.03))
+        mountains.addLine(to: CGPoint(x: w, y: horizon + h * 0.12))
+        mountains.addLine(to: CGPoint(x: 0, y: horizon + h * 0.12))
+        mountains.closeSubpath()
+        context.fill(mountains, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.37, green: 0.48, blue: 0.33).opacity(0.34),
+                              Color(red: 0.65, green: 0.57, blue: 0.36).opacity(0.18)]),
+            startPoint: CGPoint(x: 0, y: horizon - h * 0.06),
+            endPoint: CGPoint(x: 0, y: horizon + h * 0.10)
+        ))
+
+        let trees: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.13, 0.515, 0.205), (0.33, 0.495, 0.145),
+            (0.57, 0.520, 0.225), (0.79, 0.500, 0.155), (0.93, 0.510, 0.185)
+        ]
+        for tree in trees {
+            paintAcacia(in: &context,
+                        center: CGPoint(x: w * tree.0, y: h * tree.1),
+                        scale: h * tree.2,
+                        distant: true)
+        }
+    }
+
+    private func paintGround(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        var ground = Path()
+        ground.move(to: CGPoint(x: 0, y: h * 0.45))
+        ground.addQuadCurve(to: CGPoint(x: w, y: h * 0.44),
+                            control: CGPoint(x: w * 0.52, y: h * 0.49))
+        ground.addLine(to: CGPoint(x: w, y: h))
+        ground.addLine(to: CGPoint(x: 0, y: h))
+        ground.closeSubpath()
+        context.fill(ground, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.73, green: 0.66, blue: 0.39),
+                              sandLight,
+                              sandDeep]),
+            startPoint: CGPoint(x: w * 0.50, y: h * 0.42),
+            endPoint: CGPoint(x: w * 0.50, y: h)
+        ))
+
+        // A widening game trail gives the flat chamber genuine depth.
+        var trail = Path()
+        trail.move(to: CGPoint(x: w * 0.49, y: h * 0.55))
+        trail.addCurve(to: CGPoint(x: w * 0.30, y: h),
+                       control1: CGPoint(x: w * 0.58, y: h * 0.69),
+                       control2: CGPoint(x: w * 0.31, y: h * 0.79))
+        trail.addLine(to: CGPoint(x: w * 0.73, y: h))
+        trail.addCurve(to: CGPoint(x: w * 0.54, y: h * 0.55),
+                       control1: CGPoint(x: w * 0.72, y: h * 0.80),
+                       control2: CGPoint(x: w * 0.48, y: h * 0.70))
+        trail.closeSubpath()
+        context.fill(trail, with: .color(Color(red: 0.82, green: 0.66, blue: 0.39).opacity(0.52)))
+    }
+
+    private func paintSandSurface(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // Broad, low-contrast mineral patches make the soil read as a surface
+        // with history, not as a smooth gradient with noise sprinkled on top.
+        let patches: [(CGFloat, CGFloat, CGFloat, CGFloat, Color)] = [
+            (0.08, 0.49, 0.24, 0.055, Color(red: 0.48, green: 0.37, blue: 0.18).opacity(0.14)),
+            (0.42, 0.475, 0.28, 0.050, Color(red: 0.92, green: 0.75, blue: 0.43).opacity(0.18)),
+            (0.71, 0.50, 0.22, 0.060, Color(red: 0.45, green: 0.34, blue: 0.16).opacity(0.13)),
+            (0.11, 0.66, 0.29, 0.095, Color(red: 0.36, green: 0.25, blue: 0.11).opacity(0.12)),
+            (0.47, 0.70, 0.34, 0.090, Color(red: 0.91, green: 0.69, blue: 0.37).opacity(0.13)),
+            (0.70, 0.78, 0.27, 0.105, Color(red: 0.33, green: 0.23, blue: 0.10).opacity(0.13)),
+            (0.20, 0.88, 0.34, 0.100, Color(red: 0.87, green: 0.63, blue: 0.31).opacity(0.12))
+        ]
+        for (index, patch) in patches.enumerated() {
+            let rect = CGRect(x: w * patch.0,
+                              y: h * patch.1,
+                              width: w * patch.2,
+                              height: h * patch.3)
+            paintSandPatch(in: &context, rect: rect, color: patch.4, phase: index)
+        }
+
+        // Wind-combed ridges become wider and farther apart toward the camera.
+        for index in 0..<28 {
+            let depth = CGFloat((index * 17) % 29) / 28
+            let y = h * (0.485 + depth * 0.46)
+            let xSeed = CGFloat((index * 43) % 101) / 100
+            let x = w * (0.035 + xSeed * 0.91)
+            let length = w * (0.020 + depth * 0.050)
+            let lift = h * (0.0012 + depth * 0.0022)
+            var ridge = Path()
+            ridge.move(to: CGPoint(x: x - length * 0.50, y: y))
+            ridge.addCurve(to: CGPoint(x: x + length * 0.50, y: y + lift * 0.15),
+                           control1: CGPoint(x: x - length * 0.18, y: y - lift),
+                           control2: CGPoint(x: x + length * 0.20, y: y + lift))
+            context.stroke(ridge,
+                           with: .color(index.isMultiple(of: 3)
+                                ? Color.white.opacity(0.12)
+                                : bark.opacity(0.105)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.3 : 0.75, lineCap: .round))
+        }
+
+        // Tiny paired specks create gravel beds rather than evenly distributed
+        // confetti. Each cluster shares a shadow direction.
+        for cluster in 0..<15 {
+            let cx = w * (0.07 + CGFloat((cluster * 31) % 89) / 100)
+            let cy = h * (0.51 + CGFloat((cluster * 19) % 43) / 100)
+            let depth = cy / h
+            for grain in 0..<4 {
+                let gx = cx + CGFloat(grain - 2) * w * 0.006 + CGFloat(cluster % 2) * w * 0.003
+                let gy = cy + CGFloat((grain * 3) % 4) * h * 0.0025
+                let radius = max(0.55, depth * (isPad ? 1.8 : 1.15))
+                let dot = CGRect(x: gx, y: gy, width: radius * 1.7, height: radius)
+                context.fill(Path(ellipseIn: dot),
+                             with: .color(grain.isMultiple(of: 2)
+                                ? bark.opacity(0.24)
+                                : Color.white.opacity(0.13)))
+            }
+        }
+
+        // Paired shadow/light scallops describe shallow wind ripples in the
+        // loose sand. Their scale increases toward the cabinet glass.
+        for index in 0..<13 {
+            let depth = CGFloat(index) / 12
+            let y = h * (0.535 + depth * 0.40)
+            let seed = CGFloat((index * 47) % 97) / 96
+            let x = w * (0.08 + seed * 0.84)
+            let length = w * (0.025 + depth * 0.055)
+            let rise = h * (0.0015 + depth * 0.0025)
+            var ripple = Path()
+            ripple.move(to: CGPoint(x: x - length * 0.50, y: y))
+            ripple.addCurve(to: CGPoint(x: x + length * 0.50, y: y),
+                            control1: CGPoint(x: x - length * 0.22, y: y - rise),
+                            control2: CGPoint(x: x + length * 0.18, y: y + rise * 0.45))
+            context.stroke(ripple,
+                           with: .color(bark.opacity(0.13)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.45 : 0.85, lineCap: .round))
+            var light = context
+            light.translateBy(x: 0, y: -(isPad ? 1.5 : 0.8))
+            light.stroke(ripple,
+                         with: .color(Color(red: 0.96, green: 0.79, blue: 0.48).opacity(0.16)),
+                         style: StrokeStyle(lineWidth: isPad ? 1.0 : 0.6, lineCap: .round))
+        }
+
+        // A few angular seed husks and twig fragments add close-range detail
+        // without turning the ground into evenly distributed noise.
+        for index in 0..<10 {
+            let x = w * (0.10 + CGFloat((index * 37) % 83) / 100)
+            let y = h * (0.60 + CGFloat((index * 23) % 35) / 100)
+            let length = w * (0.008 + CGFloat(index % 3) * 0.004)
+            var husk = Path()
+            husk.move(to: CGPoint(x: x - length, y: y))
+            husk.addQuadCurve(to: CGPoint(x: x + length, y: y + length * 0.18),
+                              control: CGPoint(x: x, y: y - length * 0.34))
+            context.stroke(husk,
+                           with: .color(Color(red: 0.32, green: 0.22, blue: 0.09).opacity(0.30)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+        }
+    }
+
+    private func paintSandPatch(in context: inout GraphicsContext,
+                                rect: CGRect,
+                                color: Color,
+                                phase: Int) {
+        let wobble = rect.width * (phase.isMultiple(of: 2) ? 0.08 : 0.12)
+        var patch = Path()
+        patch.move(to: CGPoint(x: rect.minX + wobble, y: rect.midY))
+        patch.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
+                       control1: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.minY + rect.height * 0.10),
+                       control2: CGPoint(x: rect.midX - wobble, y: rect.minY + rect.height * 0.12))
+        patch.addCurve(to: CGPoint(x: rect.maxX - wobble * 0.55, y: rect.midY),
+                       control1: CGPoint(x: rect.midX + wobble, y: rect.minY - rect.height * 0.08),
+                       control2: CGPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.22))
+        patch.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                       control1: CGPoint(x: rect.maxX + wobble * 0.12, y: rect.maxY - rect.height * 0.22),
+                       control2: CGPoint(x: rect.midX + wobble, y: rect.maxY + rect.height * 0.05))
+        patch.addCurve(to: CGPoint(x: rect.minX + wobble, y: rect.midY),
+                       control1: CGPoint(x: rect.midX - wobble, y: rect.maxY - rect.height * 0.02),
+                       control2: CGPoint(x: rect.minX - wobble * 0.12, y: rect.maxY - rect.height * 0.18))
+        patch.closeSubpath()
+        context.fill(patch, with: .color(color))
+    }
+
+    private func paintWaterhole(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // An asymmetric, perspective-flattened shoreline. The far edge is
+        // narrow and quiet; the near bank is broader and more broken up.
+        var bank = Path()
+        bank.move(to: CGPoint(x: w * 0.285, y: h * 0.578))
+        bank.addCurve(to: CGPoint(x: w * 0.405, y: h * 0.526),
+                      control1: CGPoint(x: w * 0.315, y: h * 0.544),
+                      control2: CGPoint(x: w * 0.350, y: h * 0.532))
+        bank.addCurve(to: CGPoint(x: w * 0.620, y: h * 0.530),
+                      control1: CGPoint(x: w * 0.475, y: h * 0.510),
+                      control2: CGPoint(x: w * 0.575, y: h * 0.514))
+        bank.addCurve(to: CGPoint(x: w * 0.735, y: h * 0.585),
+                      control1: CGPoint(x: w * 0.690, y: h * 0.542),
+                      control2: CGPoint(x: w * 0.720, y: h * 0.556))
+        bank.addCurve(to: CGPoint(x: w * 0.595, y: h * 0.653),
+                      control1: CGPoint(x: w * 0.730, y: h * 0.620),
+                      control2: CGPoint(x: w * 0.675, y: h * 0.646))
+        bank.addCurve(to: CGPoint(x: w * 0.370, y: h * 0.646),
+                      control1: CGPoint(x: w * 0.515, y: h * 0.669),
+                      control2: CGPoint(x: w * 0.425, y: h * 0.660))
+        bank.addCurve(to: CGPoint(x: w * 0.285, y: h * 0.578),
+                      control1: CGPoint(x: w * 0.315, y: h * 0.628),
+                      control2: CGPoint(x: w * 0.275, y: h * 0.607))
+        bank.closeSubpath()
+        context.fill(bank, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.70, green: 0.57, blue: 0.31),
+                              Color(red: 0.34, green: 0.24, blue: 0.12)]),
+            startPoint: CGPoint(x: w * 0.50, y: h * 0.52),
+            endPoint: CGPoint(x: w * 0.50, y: h * 0.66)
+        ))
+
+        var pond = Path()
+        pond.move(to: CGPoint(x: w * 0.310, y: h * 0.579))
+        pond.addCurve(to: CGPoint(x: w * 0.420, y: h * 0.541),
+                      control1: CGPoint(x: w * 0.335, y: h * 0.552),
+                      control2: CGPoint(x: w * 0.372, y: h * 0.546))
+        pond.addCurve(to: CGPoint(x: w * 0.612, y: h * 0.544),
+                      control1: CGPoint(x: w * 0.480, y: h * 0.526),
+                      control2: CGPoint(x: w * 0.565, y: h * 0.530))
+        pond.addCurve(to: CGPoint(x: w * 0.706, y: h * 0.584),
+                      control1: CGPoint(x: w * 0.665, y: h * 0.551),
+                      control2: CGPoint(x: w * 0.696, y: h * 0.564))
+        pond.addCurve(to: CGPoint(x: w * 0.585, y: h * 0.628),
+                      control1: CGPoint(x: w * 0.696, y: h * 0.610),
+                      control2: CGPoint(x: w * 0.650, y: h * 0.626))
+        pond.addCurve(to: CGPoint(x: w * 0.382, y: h * 0.624),
+                      control1: CGPoint(x: w * 0.515, y: h * 0.641),
+                      control2: CGPoint(x: w * 0.430, y: h * 0.636))
+        pond.addCurve(to: CGPoint(x: w * 0.310, y: h * 0.579),
+                      control1: CGPoint(x: w * 0.338, y: h * 0.614),
+                      control2: CGPoint(x: w * 0.304, y: h * 0.600))
+        pond.closeSubpath()
+        context.fill(pond, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.58, green: 0.85, blue: 0.88),
+                              water,
+                              Color(red: 0.065, green: 0.35, blue: 0.47)]),
+            startPoint: CGPoint(x: w * 0.48, y: h * 0.535),
+            endPoint: CGPoint(x: w * 0.52, y: h * 0.635)
+        ))
+
+        // Broken reflections follow the wide perspective axis instead of
+        // tracing concentric ellipses.
+        let ripples: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.365, 0.566, 0.555, -0.002), (0.445, 0.585, 0.655, 0.001),
+            (0.335, 0.602, 0.485, 0.002), (0.520, 0.614, 0.670, -0.001)
+        ]
+        for (index, ripple) in ripples.enumerated() {
+            var line = Path()
+            let y = h * ripple.1
+            line.move(to: CGPoint(x: w * ripple.0, y: y))
+            line.addCurve(to: CGPoint(x: w * ripple.2, y: y + h * ripple.3),
+                          control1: CGPoint(x: w * (ripple.0 + 0.045), y: y - h * 0.006),
+                          control2: CGPoint(x: w * (ripple.2 - 0.040), y: y + h * 0.005))
+            context.stroke(line,
+                           with: .color(Color.white.opacity(0.48 - Double(index) * 0.07)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.25, lineCap: .round))
+        }
+
+        // Warm shallows along the near edge make the water sit in the sand.
+        var shallows = Path()
+        shallows.move(to: CGPoint(x: w * 0.365, y: h * 0.622))
+        shallows.addCurve(to: CGPoint(x: w * 0.610, y: h * 0.625),
+                          control1: CGPoint(x: w * 0.440, y: h * 0.640),
+                          control2: CGPoint(x: w * 0.545, y: h * 0.640))
+        context.stroke(shallows,
+                       with: .color(Color(red: 0.74, green: 0.60, blue: 0.32).opacity(0.42)),
+                       style: StrokeStyle(lineWidth: isPad ? 5 : 3, lineCap: .round))
+    }
+
+    private func paintWaterEdgeDetails(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // Paired wet/dry contours give the bank a hand-eroded edge. The lines
+        // remain interrupted at the reed beds so it never becomes a hard oval.
+        let bankContours: [(CGPoint, CGPoint, CGPoint, CGPoint)] = [
+            (CGPoint(x: 0.315, y: 0.575), CGPoint(x: 0.365, y: 0.535),
+             CGPoint(x: 0.500, y: 0.526), CGPoint(x: 0.615, y: 0.544)),
+            (CGPoint(x: 0.665, y: 0.556), CGPoint(x: 0.730, y: 0.580),
+             CGPoint(x: 0.680, y: 0.624), CGPoint(x: 0.615, y: 0.632)),
+            (CGPoint(x: 0.560, y: 0.641), CGPoint(x: 0.485, y: 0.651),
+             CGPoint(x: 0.390, y: 0.636), CGPoint(x: 0.335, y: 0.614))
+        ]
+        for contour in bankContours {
+            var lip = Path()
+            lip.move(to: CGPoint(x: w * contour.0.x, y: h * contour.0.y))
+            lip.addCurve(to: CGPoint(x: w * contour.3.x, y: h * contour.3.y),
+                         control1: CGPoint(x: w * contour.1.x, y: h * contour.1.y),
+                         control2: CGPoint(x: w * contour.2.x, y: h * contour.2.y))
+            context.stroke(lip,
+                           with: .color(Color(red: 0.23, green: 0.18, blue: 0.09).opacity(0.42)),
+                           style: StrokeStyle(lineWidth: isPad ? 4.3 : 2.7, lineCap: .round))
+
+            var dryHighlight = context
+            dryHighlight.translateBy(x: 0, y: -(isPad ? 1.8 : 1.0))
+            dryHighlight.stroke(lip,
+                                with: .color(Color(red: 0.86, green: 0.70, blue: 0.40).opacity(0.32)),
+                                style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.1, lineCap: .round))
+        }
+
+        // Small collapsed shelves interrupt the contour and sell soft mud.
+        let mudPockets: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.325, 0.610, 0.052, 0.014),
+            (0.535, 0.642, 0.072, 0.015),
+            (0.681, 0.590, 0.045, 0.012)
+        ]
+        for pocket in mudPockets {
+            let rect = CGRect(x: w * (pocket.0 - pocket.2 * 0.5),
+                              y: h * (pocket.1 - pocket.3 * 0.5),
+                              width: w * pocket.2,
+                              height: h * pocket.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .linearGradient(
+                            Gradient(colors: [Color.black.opacity(0.20),
+                                              Color(red: 0.55, green: 0.39, blue: 0.18).opacity(0.52)]),
+                            startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                            endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+        }
+
+        // Dark wet shelves occur only where the bank is low. They are broken
+        // segments, not an outline around the entire pool.
+        let wetShelves: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.285, 0.593, 0.385, 0.606),
+            (0.575, 0.635, 0.690, 0.610),
+            (0.615, 0.545, 0.675, 0.558)
+        ]
+        for shelf in wetShelves {
+            var mud = Path()
+            mud.move(to: CGPoint(x: w * shelf.0, y: h * shelf.1))
+            mud.addCurve(to: CGPoint(x: w * shelf.2, y: h * shelf.3),
+                         control1: CGPoint(x: w * (shelf.0 + 0.028), y: h * (shelf.1 + 0.010)),
+                         control2: CGPoint(x: w * (shelf.2 - 0.025), y: h * (shelf.3 - 0.006)))
+            context.stroke(mud,
+                           with: .color(Color(red: 0.25, green: 0.20, blue: 0.105).opacity(0.38)),
+                           style: StrokeStyle(lineWidth: isPad ? 5.5 : 3.4, lineCap: .round))
+        }
+
+        // Rocks sit in three uneven groups, leaving long open stretches of mud
+        // and reeds. This removes the artificial necklace around the water.
+        let stones: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.292, 0.582, 0.021), (0.322, 0.602, 0.015), (0.350, 0.611, 0.010),
+            (0.642, 0.633, 0.014), (0.675, 0.622, 0.027), (0.714, 0.603, 0.017),
+            (0.735, 0.580, 0.011), (0.635, 0.543, 0.012)
+        ]
+        for (index, stone) in stones.enumerated() {
+            let radius = w * stone.2
+            let center = CGPoint(x: w * stone.0, y: h * stone.1)
+            let contact = CGRect(x: center.x - radius * 1.05,
+                                 y: center.y + radius * 0.12,
+                                 width: radius * 2.10,
+                                 height: radius * 0.52)
+            context.fill(Path(ellipseIn: contact), with: .color(Color.black.opacity(0.14)))
+            paintRock(in: &context, center: center, radius: radius)
+            let glint = CGRect(x: center.x - radius * 0.44,
+                               y: center.y - radius * 0.44,
+                               width: radius * 0.52,
+                               height: radius * 0.18)
+            context.fill(Path(ellipseIn: glint),
+                         with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.18 : 0.10)))
+        }
+
+        // Two local reed beds, both offset from the rock groups.
+        let reedBeds: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.365, 0.558, 0.034), (0.704, 0.585, 0.048)
+        ]
+        for bed in reedBeds {
+            paintReeds(in: &context,
+                       base: CGPoint(x: w * bed.0, y: h * bed.1),
+                       height: h * bed.2)
+        }
+
+        paintDenseGrassClump(in: &context,
+                             base: CGPoint(x: w * 0.592, y: h * 0.645),
+                             height: h * 0.031,
+                             width: w * 0.045,
+                             dry: true,
+                             bladeCount: 8)
+    }
+
+    private func paintGroundDetails(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        for index in 0..<38 {
+            let column = CGFloat((index * 37) % 101) / 100
+            let depth = CGFloat((index * 19) % 53) / 52
+            let y = h * (0.47 + depth * 0.49)
+            let x = w * column
+            let radius = max(0.7, (y / h) * (isPad ? 2.1 : 1.5))
+            let pebble = CGRect(x: x, y: y, width: radius * 1.9, height: radius)
+            context.fill(Path(ellipseIn: pebble), with: .color(bark.opacity(0.20)))
+        }
+
+        // Short perspective cracks and dry grass marks prevent the sand from
+        // reading as one flat gradient. Marks grow subtly toward the viewer.
+        for index in 0..<16 {
+            let x = w * (0.08 + CGFloat((index * 31) % 83) / 100)
+            let y = h * (0.50 + CGFloat((index * 23) % 43) / 100)
+            let length = w * (0.010 + (y / h) * 0.018)
+            var crack = Path()
+            crack.move(to: CGPoint(x: x - length, y: y))
+            crack.addLine(to: CGPoint(x: x, y: y + length * 0.22))
+            crack.addLine(to: CGPoint(x: x + length * 0.72, y: y - length * 0.12))
+            if index.isMultiple(of: 3) {
+                crack.move(to: CGPoint(x: x, y: y + length * 0.18))
+                crack.addLine(to: CGPoint(x: x - length * 0.12, y: y + length * 0.62))
+            }
+            context.stroke(crack,
+                           with: .color(bark.opacity(0.16)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.2 : 0.75, lineCap: .round))
+        }
+
+        let middleTufts: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.18, 0.52, 0.018), (0.27, 0.56, 0.014), (0.75, 0.52, 0.018),
+            (0.82, 0.58, 0.024), (0.48, 0.67, 0.015), (0.59, 0.71, 0.018),
+            (0.30, 0.68, 0.022), (0.71, 0.77, 0.025)
+        ]
+        for tuft in middleTufts {
+            paintGrass(in: &context,
+                       base: CGPoint(x: w * tuft.0, y: h * tuft.1),
+                       height: h * tuft.2)
+        }
+
+        let rocks: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.27, 0.61, 0.030), (0.72, 0.60, 0.026), (0.22, 0.72, 0.043),
+            (0.77, 0.70, 0.038), (0.10, 0.84, 0.060), (0.90, 0.82, 0.055)
+        ]
+        for rock in rocks {
+            paintRock(in: &context,
+                      center: CGPoint(x: w * rock.0, y: h * rock.1),
+                      radius: w * rock.2)
+        }
+    }
+
+    private func paintFieldVegetation(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // A thin, broken vegetation band anchors the horizon without turning
+        // it into a uniform green stripe.
+        let distantClumps: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.06, 0.486, 0.018), (0.18, 0.500, 0.024), (0.29, 0.482, 0.015),
+            (0.40, 0.505, 0.020), (0.52, 0.483, 0.016), (0.65, 0.500, 0.022),
+            (0.76, 0.482, 0.017), (0.88, 0.502, 0.026), (0.96, 0.487, 0.015)
+        ]
+        for (index, clump) in distantClumps.enumerated() {
+            paintDenseGrassClump(in: &context,
+                                 base: CGPoint(x: w * clump.0, y: h * clump.1),
+                                 height: h * clump.2,
+                                 width: w * clump.2 * 1.65,
+                                 dry: index.isMultiple(of: 3),
+                                 bladeCount: 7)
+        }
+
+        let grasses: [(CGFloat, CGFloat, CGFloat, CGFloat, Bool)] = [
+            (0.11, 0.565, 0.038, 0.052, false),
+            (0.235, 0.605, 0.050, 0.062, true),
+            (0.285, 0.535, 0.026, 0.036, false),
+            (0.735, 0.545, 0.032, 0.044, false),
+            (0.805, 0.615, 0.060, 0.072, false),
+            (0.675, 0.685, 0.046, 0.058, true),
+            (0.335, 0.700, 0.052, 0.066, false),
+            (0.155, 0.765, 0.070, 0.086, true),
+            (0.845, 0.770, 0.080, 0.095, false)
+        ]
+        for grass in grasses {
+            paintDenseGrassClump(in: &context,
+                                 base: CGPoint(x: w * grass.0, y: h * grass.1),
+                                 height: h * grass.2,
+                                 width: w * grass.3,
+                                 dry: grass.4,
+                                 bladeCount: grass.2 > 0.055 ? 13 : 10)
+        }
+
+        let shrubs: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.18, 0.535, 0.030), (0.78, 0.515, 0.025),
+            (0.255, 0.655, 0.045), (0.735, 0.650, 0.040)
+        ]
+        for (index, shrub) in shrubs.enumerated() {
+            paintLowShrub(in: &context,
+                          base: CGPoint(x: w * shrub.0, y: h * shrub.1),
+                          radius: w * shrub.2,
+                          dry: index == 1 || index == 2)
+        }
+
+        paintDryBrush(in: &context,
+                      base: CGPoint(x: w * 0.61, y: h * 0.515),
+                      height: h * 0.043,
+                      width: w * 0.060)
+        paintDryBrush(in: &context,
+                      base: CGPoint(x: w * 0.43, y: h * 0.675),
+                      height: h * 0.060,
+                      width: w * 0.075)
+    }
+
+    private func paintDenseGrassClump(in context: inout GraphicsContext,
+                                      base: CGPoint,
+                                      height: CGFloat,
+                                      width: CGFloat,
+                                      dry: Bool,
+                                      bladeCount: Int) {
+        // A soft contact shadow seats every plant in the sand.
+        let shadow = CGRect(x: base.x - width * 0.48,
+                            y: base.y - height * 0.045,
+                            width: width * 0.96,
+                            height: height * 0.16)
+        context.fill(Path(ellipseIn: shadow), with: .color(Color.black.opacity(0.11)))
+
+        for index in 0..<bladeCount {
+            let t = bladeCount > 1 ? CGFloat(index) / CGFloat(bladeCount - 1) : 0.5
+            let rootX = base.x + (t - 0.5) * width * 0.64
+            let lean = (t - 0.5) * width * (0.72 + CGFloat(index % 3) * 0.12)
+            let bladeHeight = height * (0.62 + CGFloat((index * 7) % 6) * 0.075)
+            let bladeWidth = max(0.6, width * (index.isMultiple(of: 4) ? 0.045 : 0.030))
+            let tip = CGPoint(x: rootX + lean, y: base.y - bladeHeight)
+            var blade = Path()
+            blade.move(to: CGPoint(x: rootX - bladeWidth * 0.5, y: base.y))
+            blade.addQuadCurve(to: tip,
+                               control: CGPoint(x: rootX + lean * 0.18, y: base.y - bladeHeight * 0.55))
+            blade.addQuadCurve(to: CGPoint(x: rootX + bladeWidth * 0.5, y: base.y),
+                               control: CGPoint(x: rootX + lean * 0.48 + bladeWidth,
+                                                y: base.y - bladeHeight * 0.45))
+            blade.closeSubpath()
+            let color: Color
+            if dry {
+                color = index.isMultiple(of: 3)
+                    ? Color(red: 0.66, green: 0.48, blue: 0.18)
+                    : Color(red: 0.43, green: 0.40, blue: 0.12)
+            } else {
+                color = index.isMultiple(of: 3) ? leafLight : savannaGreen
+            }
+            context.fill(blade, with: .linearGradient(
+                Gradient(colors: [color.opacity(0.92), color.opacity(0.62)]),
+                startPoint: base, endPoint: tip
+            ))
+        }
+    }
+
+    private func paintLowShrub(in context: inout GraphicsContext,
+                               base: CGPoint,
+                               radius: CGFloat,
+                               dry: Bool) {
+        for index in 0..<9 {
+            let angle = -Double.pi * 0.92 + Double(index) * Double.pi * 0.23
+            let length = radius * (0.72 + CGFloat(index % 4) * 0.13)
+            var stem = Path()
+            stem.move(to: base)
+            let tip = CGPoint(x: base.x + CGFloat(cos(angle)) * length,
+                              y: base.y + CGFloat(sin(angle)) * length * 0.72)
+            stem.addQuadCurve(to: tip,
+                              control: CGPoint(x: (base.x + tip.x) * 0.5 + CGFloat(index % 2) * radius * 0.08,
+                                               y: (base.y + tip.y) * 0.5))
+            context.stroke(stem,
+                           with: .color(dry ? barkLight.opacity(0.72) : savannaGreen.opacity(0.80)),
+                           style: StrokeStyle(lineWidth: max(0.65, radius * 0.055), lineCap: .round))
+            if !dry || index.isMultiple(of: 2) {
+                paintLeaf(in: &context,
+                          center: tip,
+                          length: radius * 0.42,
+                          angle: angle + .pi * 0.35,
+                          color: dry ? Color(red: 0.58, green: 0.46, blue: 0.18) : leafLight)
+            }
+        }
+    }
+
+    private func paintDryBrush(in context: inout GraphicsContext,
+                               base: CGPoint,
+                               height: CGFloat,
+                               width: CGFloat) {
+        for index in 0..<7 {
+            let t = CGFloat(index) / 6
+            let tip = CGPoint(x: base.x + (t - 0.5) * width,
+                              y: base.y - height * (0.55 + CGFloat((index * 5) % 4) * 0.12))
+            var stem = Path()
+            stem.move(to: base)
+            stem.addCurve(to: tip,
+                          control1: CGPoint(x: base.x + (t - 0.5) * width * 0.16, y: base.y - height * 0.30),
+                          control2: CGPoint(x: tip.x - (t - 0.5) * width * 0.10, y: tip.y + height * 0.18))
+            context.stroke(stem,
+                           with: .color(Color(red: 0.47, green: 0.35, blue: 0.13).opacity(0.78)),
+                           style: StrokeStyle(lineWidth: max(0.6, height * 0.022), lineCap: .round))
+            let head = CGRect(x: tip.x - width * 0.025,
+                              y: tip.y - height * 0.035,
+                              width: width * 0.05,
+                              height: height * 0.07)
+            context.fill(Path(ellipseIn: head),
+                         with: .color(Color(red: 0.76, green: 0.59, blue: 0.25).opacity(0.74)))
+        }
+    }
+
+    private func paintHabitatFurniture(in context: inout GraphicsContext, size: CGSize) {
+        paintLeftRootBank(in: &context, size: size)
+        paintClimbingPost(in: &context, size: size)
+
+        // The collection bin occupies the far-right floor. A stump in that
+        // location vanished completely, so this bank grows above and just to
+        // the left of the bin instead.
+        paintSedgeBank(in: &context, size: size)
+        paintClimbingNet(in: &context, size: size)
+    }
+
+    private func paintTreesAndCanopy(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // Crown branches are the rearmost tree layer. Trunks and foliage drawn
+        // afterwards hide their joins and create a convincing grown structure.
+        paintCanopyBranches(in: &context, size: size)
+
+        var leftTrunk = Path()
+        leftTrunk.move(to: CGPoint(x: -w * 0.018, y: h * 0.83))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.058, y: h * 0.43),
+                           control1: CGPoint(x: w * 0.025, y: h * 0.70),
+                           control2: CGPoint(x: w * 0.010, y: h * 0.55))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.076, y: h * 0.085),
+                           control1: CGPoint(x: w * 0.085, y: h * 0.31),
+                           control2: CGPoint(x: w * 0.035, y: h * 0.18))
+        leftTrunk.addQuadCurve(to: CGPoint(x: w * 0.118, y: h * 0.052),
+                               control: CGPoint(x: w * 0.100, y: h * 0.060))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.108, y: h * 0.44),
+                           control1: CGPoint(x: w * 0.094, y: h * 0.17),
+                           control2: CGPoint(x: w * 0.125, y: h * 0.31))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.040, y: h * 0.86),
+                           control1: CGPoint(x: w * 0.090, y: h * 0.62),
+                           control2: CGPoint(x: w * 0.105, y: h * 0.74))
+        leftTrunk.closeSubpath()
+        context.fill(leftTrunk, with: .linearGradient(
+            Gradient(colors: [bark, barkLight, bark]),
+            startPoint: CGPoint(x: 0, y: h), endPoint: CGPoint(x: w * 0.13, y: 0))
+        )
+        context.stroke(leftTrunk, with: .color(Color.black.opacity(0.25)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.2 : 1.35, lineJoin: .round))
+
+        var rightTrunk = Path()
+        rightTrunk.move(to: CGPoint(x: w * 1.018, y: h * 0.84))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.946, y: h * 0.44),
+                            control1: CGPoint(x: w * 0.980, y: h * 0.70),
+                            control2: CGPoint(x: w * 0.992, y: h * 0.56))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.924, y: h * 0.085),
+                            control1: CGPoint(x: w * 0.915, y: h * 0.31),
+                            control2: CGPoint(x: w * 0.965, y: h * 0.18))
+        rightTrunk.addQuadCurve(to: CGPoint(x: w * 0.882, y: h * 0.052),
+                                control: CGPoint(x: w * 0.900, y: h * 0.060))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.892, y: h * 0.45),
+                            control1: CGPoint(x: w * 0.906, y: h * 0.17),
+                            control2: CGPoint(x: w * 0.875, y: h * 0.31))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.960, y: h * 0.87),
+                            control1: CGPoint(x: w * 0.910, y: h * 0.63),
+                            control2: CGPoint(x: w * 0.895, y: h * 0.75))
+        rightTrunk.closeSubpath()
+        context.fill(rightTrunk, with: .linearGradient(
+            Gradient(colors: [bark, barkLight, bark]),
+            startPoint: CGPoint(x: w, y: h), endPoint: CGPoint(x: w * 0.86, y: 0))
+        )
+        context.stroke(rightTrunk, with: .color(Color.black.opacity(0.25)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.2 : 1.35, lineJoin: .round))
+
+        // Fine bark grooves follow the trunks instead of sitting as generic
+        // vertical stripes, with small knots that catch the light.
+        for index in 0..<4 {
+            let offset = CGFloat(index - 2) * w * 0.010
+            var leftGrain = Path()
+            leftGrain.move(to: CGPoint(x: w * 0.025 + offset, y: h * 0.76))
+            leftGrain.addCurve(to: CGPoint(x: w * 0.095 + offset * 0.35, y: h * 0.10),
+                               control1: CGPoint(x: w * 0.055 - offset, y: h * 0.56),
+                               control2: CGPoint(x: w * 0.045 + offset, y: h * 0.30))
+            context.stroke(leftGrain,
+                           with: .color(index.isMultiple(of: 2) ? Color.white.opacity(0.12) : bark.opacity(0.44)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.7 : 1.0, lineCap: .round))
+
+            var rightGrain = Path()
+            rightGrain.move(to: CGPoint(x: w * 0.975 + offset, y: h * 0.77))
+            rightGrain.addCurve(to: CGPoint(x: w * 0.895 + offset * 0.35, y: h * 0.10),
+                                control1: CGPoint(x: w * 0.945 - offset, y: h * 0.56),
+                                control2: CGPoint(x: w * 0.965 + offset, y: h * 0.30))
+            context.stroke(rightGrain,
+                           with: .color(index.isMultiple(of: 2) ? bark.opacity(0.48) : Color.white.opacity(0.10)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.7 : 1.0, lineCap: .round))
+        }
+        let knots: [(CGFloat, CGFloat)] = [
+            (0.065, 0.43), (0.095, 0.60), (0.945, 0.37), (0.965, 0.57)
+        ]
+        for knot in knots {
+            let rect = CGRect(x: w * knot.0 - w * 0.012, y: h * knot.1 - w * 0.008,
+                              width: w * 0.024, height: w * 0.016)
+            context.fill(Path(ellipseIn: rect), with: .color(bark.opacity(0.72)))
+            context.stroke(Path(ellipseIn: rect.insetBy(dx: w * 0.004, dy: w * 0.003)),
+                           with: .color(barkLight.opacity(0.48)), lineWidth: isPad ? 1.2 : 0.8)
+        }
+
+        let foliage: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.02, 0.03, 0.23, 0.12), (0.17, 0.015, 0.25, 0.13),
+            (0.35, 0.025, 0.21, 0.11), (0.55, 0.02, 0.23, 0.12),
+            (0.73, 0.015, 0.25, 0.13), (0.91, 0.035, 0.20, 0.12),
+            (0.02, 0.15, 0.16, 0.12), (0.88, 0.15, 0.16, 0.12)
+        ]
+        for (index, cluster) in foliage.enumerated() {
+            let rect = CGRect(x: w * (cluster.0 - cluster.2 * 0.5),
+                              y: h * cluster.1,
+                              width: w * cluster.2,
+                              height: h * cluster.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen))
+            let highlight = rect.insetBy(dx: rect.width * 0.20, dy: rect.height * 0.24)
+                .offsetBy(dx: -rect.width * 0.10, dy: -rect.height * 0.12)
+            context.fill(Path(ellipseIn: highlight), with: .color(Color.white.opacity(0.10)))
+        }
+
+        paintHangingVines(in: &context, size: size)
+    }
+
+    private func paintCanopyBranches(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let branches: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
+            (CGPoint(x: 0.07, y: 0.20), CGPoint(x: 0.20, y: 0.10), CGPoint(x: 0.40, y: 0.08), 0.035),
+            (CGPoint(x: 0.91, y: 0.18), CGPoint(x: 0.79, y: 0.09), CGPoint(x: 0.58, y: 0.07), 0.032),
+            (CGPoint(x: 0.10, y: 0.32), CGPoint(x: 0.18, y: 0.21), CGPoint(x: 0.27, y: 0.18), 0.020),
+            (CGPoint(x: 0.90, y: 0.31), CGPoint(x: 0.83, y: 0.22), CGPoint(x: 0.74, y: 0.18), 0.019)
+        ]
+        for branch in branches {
+            var path = Path()
+            path.move(to: CGPoint(x: w * branch.0.x, y: h * branch.0.y))
+            path.addQuadCurve(to: CGPoint(x: w * branch.2.x, y: h * branch.2.y),
+                              control: CGPoint(x: w * branch.1.x, y: h * branch.1.y))
+            context.stroke(path,
+                           with: .linearGradient(Gradient(colors: [bark, barkLight, bark]),
+                                                 startPoint: CGPoint(x: w * branch.0.x, y: h * branch.0.y),
+                                                 endPoint: CGPoint(x: w * branch.2.x, y: h * branch.2.y)),
+                           style: StrokeStyle(lineWidth: w * branch.3, lineCap: .round))
+        }
+    }
+
+    private func paintTireSwing(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let ropeStart = CGPoint(x: w * 0.24, y: 0)
+        let tireCenter = CGPoint(x: w * 0.255, y: h * 0.255)
+
+        var liana = Path()
+        liana.move(to: ropeStart)
+        liana.addCurve(to: CGPoint(x: tireCenter.x, y: tireCenter.y - h * 0.022),
+                       control1: CGPoint(x: w * 0.20, y: h * 0.075),
+                       control2: CGPoint(x: w * 0.30, y: h * 0.15))
+        context.stroke(liana, with: .color(Color.black.opacity(0.30)),
+                       style: StrokeStyle(lineWidth: isPad ? 6 : 4, lineCap: .round))
+        context.stroke(liana, with: .linearGradient(
+            Gradient(colors: [savannaGreen, barkLight, bark]),
+            startPoint: ropeStart, endPoint: tireCenter),
+                       style: StrokeStyle(lineWidth: isPad ? 4.2 : 2.8, lineCap: .round))
+
+        // A real front-facing ring: perfectly round, visually heavy and with
+        // an open centre. The previous flattened ellipse read like a pulley.
+        let diameter = min(w * 0.115, h * 0.105)
+        let tireRect = CGRect(x: tireCenter.x - diameter * 0.50,
+                              y: tireCenter.y - diameter * 0.50,
+                              width: diameter,
+                              height: diameter)
+        let rubberWidth = diameter * 0.245
+        context.stroke(Path(ellipseIn: tireRect.offsetBy(dx: diameter * 0.035,
+                                                         dy: diameter * 0.065)),
+                       with: .color(Color.black.opacity(0.34)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 1.10))
+        context.stroke(Path(ellipseIn: tireRect),
+                       with: .linearGradient(
+                        Gradient(colors: [Color(red: 0.30, green: 0.27, blue: 0.20),
+                                          Color(red: 0.105, green: 0.095, blue: 0.075),
+                                          Color(red: 0.035, green: 0.038, blue: 0.032)]),
+                        startPoint: CGPoint(x: tireRect.minX, y: tireRect.minY),
+                        endPoint: CGPoint(x: tireRect.maxX, y: tireRect.maxY)),
+                       style: StrokeStyle(lineWidth: rubberWidth, lineCap: .round))
+
+        // Sidewall bevels define the outer rubber and the recessed inner hole.
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.16,
+                                                        dy: rubberWidth * 0.16)),
+                       with: .color(Color.white.opacity(0.16)),
+                       style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05))
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.52,
+                                                        dy: rubberWidth * 0.52)),
+                       with: .color(Color.black.opacity(0.52)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.3 : 1.4))
+        var sidewallGlint = Path()
+        sidewallGlint.addArc(center: tireCenter,
+                             radius: diameter * 0.50,
+                             startAngle: .degrees(205),
+                             endAngle: .degrees(305),
+                             clockwise: false)
+        context.stroke(sidewallGlint,
+                       with: .color(Color.white.opacity(0.12)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 0.22, lineCap: .round))
+
+        // The vine visibly loops and tightens around the top of the tyre.
+        let knotY = tireRect.minY + rubberWidth * 0.12
+        for index in 0..<3 {
+            let knot = CGRect(x: tireCenter.x - rubberWidth * (0.48 + CGFloat(index) * 0.035),
+                              y: knotY + CGFloat(index) * rubberWidth * 0.16,
+                              width: rubberWidth * (0.96 + CGFloat(index) * 0.07),
+                              height: rubberWidth * 0.30)
+            context.stroke(Path(ellipseIn: knot),
+                           with: .color(index == 1 ? barkLight : bark),
+                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.55, lineCap: .round))
+        }
+    }
+
+    private func paintForeground(in context: inout GraphicsContext, size: CGSize) {
+        let tufts: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.25, 0.83, 0.038), (0.72, 0.82, 0.045),
+            (0.95, 0.89, 0.060), (0.70, 0.64, 0.030)
+        ]
+        for tuft in tufts {
+            paintGrass(in: &context,
+                       base: CGPoint(x: size.width * tuft.0, y: size.height * tuft.1),
+                       height: size.height * tuft.2)
+        }
+    }
+
+    private func paintReeds(in context: inout GraphicsContext,
+                            base: CGPoint,
+                            height: CGFloat) {
+        for index in 0..<5 {
+            let offset = (CGFloat(index) - 2) * height * 0.13
+            let reedHeight = height * (0.64 + CGFloat((index * 7) % 5) * 0.09)
+            var stem = Path()
+            stem.move(to: CGPoint(x: base.x + offset, y: base.y))
+            stem.addQuadCurve(to: CGPoint(x: base.x + offset * 1.22, y: base.y - reedHeight),
+                              control: CGPoint(x: base.x + offset * 0.78, y: base.y - reedHeight * 0.48))
+            context.stroke(stem,
+                           with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen),
+                           style: StrokeStyle(lineWidth: max(0.8, height * 0.035), lineCap: .round))
+            if index == 1 || index == 3 {
+                let head = CGRect(x: base.x + offset * 1.22 - height * 0.025,
+                                  y: base.y - reedHeight - height * 0.085,
+                                  width: height * 0.05,
+                                  height: height * 0.13)
+                context.fill(Path(ellipseIn: head), with: .color(barkLight.opacity(0.84)))
+            }
+        }
+    }
+
+    private func paintLeftRootBank(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // These roots visually continue the large frame tree into the ground,
+        // replacing the isolated upright stump that looked placed at random.
+        let roots: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
+            (CGPoint(x: 0.030, y: 0.715), CGPoint(x: 0.105, y: 0.720), CGPoint(x: 0.245, y: 0.755), 0.030),
+            (CGPoint(x: 0.045, y: 0.690), CGPoint(x: 0.110, y: 0.665), CGPoint(x: 0.205, y: 0.690), 0.022),
+            (CGPoint(x: 0.020, y: 0.755), CGPoint(x: 0.075, y: 0.785), CGPoint(x: 0.165, y: 0.805), 0.026)
+        ]
+        for root in roots {
+            var path = Path()
+            path.move(to: CGPoint(x: w * root.0.x, y: h * root.0.y))
+            path.addQuadCurve(to: CGPoint(x: w * root.2.x, y: h * root.2.y),
+                              control: CGPoint(x: w * root.1.x, y: h * root.1.y))
+            context.stroke(path,
+                           with: .color(Color.black.opacity(0.18)),
+                           style: StrokeStyle(lineWidth: w * root.3 * 1.25, lineCap: .round))
+            context.stroke(path,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, sandDeep]),
+                            startPoint: CGPoint(x: w * root.0.x, y: h * root.0.y),
+                            endPoint: CGPoint(x: w * root.2.x, y: h * root.2.y)),
+                           style: StrokeStyle(lineWidth: w * root.3, lineCap: .round))
+        }
+
+        let rocks: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.070, 0.760, 0.052), (0.130, 0.785, 0.043),
+            (0.185, 0.755, 0.036), (0.095, 0.825, 0.048)
+        ]
+        for rock in rocks {
+            paintRock(in: &context,
+                      center: CGPoint(x: w * rock.0, y: h * rock.1),
+                      radius: w * rock.2)
+        }
+
+    }
+
+    private func paintClimbingPost(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let postX = w * 0.145
+        let postTop = h * 0.315
+        let postBottom = h * 0.735
+        let postWidth = w * 0.052
+        let postRect = CGRect(x: postX - postWidth * 0.50,
+                              y: postTop,
+                              width: postWidth,
+                              height: postBottom - postTop)
+        let platforms: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.355, 0.170, -0.010),
+            (0.455, 0.135, 0.018),
+            (0.565, 0.175, -0.014),
+            (0.680, 0.145, 0.012)
+        ]
+
+        // The rear halves are painted first and then naturally disappear
+        // behind the trunk. Their exposed shoulders prove the rope continues
+        // around the back instead of being drawn as stripes on the front.
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: h * 0.515),
+                          width: postWidth * 1.34,
+                          height: h * 0.058)
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: h * 0.635),
+                          width: postWidth * 1.34,
+                          height: h * 0.052)
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: postBottom - h * 0.006),
+                          width: postWidth * 1.42,
+                          height: h * 0.033)
+        for platform in platforms {
+            paintRopeWrapBack(in: &context,
+                              center: CGPoint(x: postX, y: h * platform.0),
+                              width: postWidth * 1.34,
+                              height: h * 0.018,
+                              turns: 3)
+        }
+
+        context.fill(RoundedRectangle(cornerRadius: postWidth * 0.30, style: .continuous)
+            .path(in: postRect.offsetBy(dx: w * 0.008, dy: h * 0.006)),
+                     with: .color(Color.black.opacity(0.22)))
+        context.fill(RoundedRectangle(cornerRadius: postWidth * 0.30, style: .continuous).path(in: postRect),
+                     with: .linearGradient(
+                        Gradient(colors: [bark, barkLight, Color(red: 0.27, green: 0.14, blue: 0.055)]),
+                        startPoint: CGPoint(x: postRect.minX, y: postRect.minY),
+                        endPoint: CGPoint(x: postRect.maxX, y: postRect.maxY)
+                     ))
+
+        // Irregular longitudinal cuts make this a real debarked trunk.
+        for index in 0..<4 {
+            let x = postRect.minX + postWidth * (0.18 + CGFloat(index) * 0.21)
+            var groove = Path()
+            groove.move(to: CGPoint(x: x, y: postTop + h * 0.018))
+            groove.addCurve(to: CGPoint(x: x + CGFloat(index - 2) * w * 0.003, y: postBottom - h * 0.018),
+                            control1: CGPoint(x: x + CGFloat(index % 2) * w * 0.007, y: h * 0.46),
+                            control2: CGPoint(x: x - CGFloat(index % 2) * w * 0.006, y: h * 0.61))
+            context.stroke(groove,
+                           with: .color(index.isMultiple(of: 2) ? Color.white.opacity(0.13) : bark.opacity(0.48)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+        }
+
+        // Knots, old peg holes and growth rings break up the straight pole.
+        let trunkKnots: [(CGFloat, CGFloat, CGFloat)] = [
+            (-0.12, 0.405, 0.19), (0.15, 0.585, 0.16), (-0.08, 0.704, 0.12)
+        ]
+        for knot in trunkKnots {
+            let knotRect = CGRect(x: postX + postWidth * knot.0 - postWidth * knot.2,
+                                  y: h * knot.1 - postWidth * knot.2 * 0.55,
+                                  width: postWidth * knot.2 * 2,
+                                  height: postWidth * knot.2 * 1.10)
+            context.fill(Path(ellipseIn: knotRect), with: .color(bark.opacity(0.72)))
+            context.stroke(Path(ellipseIn: knotRect.insetBy(dx: postWidth * 0.045,
+                                                            dy: postWidth * 0.025)),
+                           with: .color(Color(red: 0.75, green: 0.50, blue: 0.21).opacity(0.48)),
+                           lineWidth: isPad ? 1.2 : 0.75)
+        }
+
+        for (index, platform) in platforms.enumerated() {
+            let y = h * platform.0
+            let width = w * platform.1
+            let shift = w * platform.2
+            let start = CGPoint(x: postX - width * 0.50 + shift, y: y)
+            let end = CGPoint(x: postX + width * 0.50 + shift, y: y)
+            var shelf = Path()
+            shelf.move(to: start)
+            shelf.addLine(to: end)
+            context.stroke(shelf,
+                           with: .color(Color.black.opacity(0.24)),
+                           style: StrokeStyle(lineWidth: w * 0.030, lineCap: .round))
+            context.stroke(shelf,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, bark]),
+                            startPoint: start, endPoint: end),
+                           style: StrokeStyle(lineWidth: w * 0.023, lineCap: .round))
+
+            var highlight = Path()
+            highlight.move(to: CGPoint(x: start.x + w * 0.008, y: start.y - w * 0.006))
+            highlight.addCurve(to: CGPoint(x: end.x - w * 0.008, y: end.y - w * 0.005),
+                               control1: CGPoint(x: postX - width * 0.18, y: y - w * 0.009),
+                               control2: CGPoint(x: postX + width * 0.20, y: y - w * 0.003))
+            context.stroke(highlight,
+                           with: .color(Color(red: 0.88, green: 0.66, blue: 0.32).opacity(0.36)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+
+            // End grain and a dark core make every platform read as a branch.
+            for endPoint in [start, end] {
+                let endGrain = CGRect(x: endPoint.x - w * 0.011,
+                                      y: endPoint.y - w * 0.009,
+                                      width: w * 0.022,
+                                      height: w * 0.018)
+                context.fill(Path(ellipseIn: endGrain),
+                             with: .color(Color(red: 0.68, green: 0.44, blue: 0.17)))
+                context.stroke(Path(ellipseIn: endGrain.insetBy(dx: w * 0.004, dy: w * 0.003)),
+                               with: .color(bark.opacity(0.54)),
+                               lineWidth: isPad ? 1.0 : 0.65)
+            }
+
+            // Small diagonal brace below alternating shelves.
+            let braceDirection: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            var brace = Path()
+            brace.move(to: CGPoint(x: postX, y: y + h * 0.008))
+            brace.addLine(to: CGPoint(x: postX + braceDirection * width * 0.34,
+                                      y: y + h * 0.040))
+            context.stroke(brace,
+                           with: .color(bark.opacity(0.82)),
+                           style: StrokeStyle(lineWidth: w * 0.010, lineCap: .round))
+
+            // The front halves complete the rear lashings painted before the
+            // trunk, so every single strand now passes around real depth.
+            paintRopeWrap(in: &context,
+                          center: CGPoint(x: postX, y: y),
+                          width: postWidth * 1.34,
+                          height: h * 0.018,
+                          turns: 3,
+                          showKnot: false)
+        }
+
+        // Two substantial sisal scratching zones connect the shelves.
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: h * 0.515),
+                      width: postWidth * 1.34,
+                      height: h * 0.058)
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: h * 0.635),
+                      width: postWidth * 1.34,
+                      height: h * 0.052)
+
+        // Visible cut ends on the top shelf and trunk.
+        let cap = CGRect(x: postX - postWidth * 0.54,
+                         y: postTop - postWidth * 0.16,
+                         width: postWidth * 1.08,
+                         height: postWidth * 0.42)
+        context.fill(Path(ellipseIn: cap), with: .color(Color(red: 0.69, green: 0.48, blue: 0.22)))
+        context.stroke(Path(ellipseIn: cap.insetBy(dx: postWidth * 0.18, dy: postWidth * 0.06)),
+                       with: .color(bark.opacity(0.40)), lineWidth: isPad ? 1.4 : 0.85)
+
+        // A broad, lashed foot grounds the structure instead of letting the
+        // narrow pole appear to float over the sand.
+        let footY = postBottom + h * 0.006
+        var foot = Path()
+        foot.move(to: CGPoint(x: postX - w * 0.070, y: footY))
+        foot.addQuadCurve(to: CGPoint(x: postX + w * 0.070, y: footY),
+                          control: CGPoint(x: postX, y: footY - h * 0.010))
+        context.stroke(foot, with: .color(Color.black.opacity(0.22)),
+                       style: StrokeStyle(lineWidth: w * 0.029, lineCap: .round))
+        context.stroke(foot,
+                       with: .linearGradient(Gradient(colors: [bark, barkLight, bark]),
+                                             startPoint: CGPoint(x: postX - w * 0.070, y: footY),
+                                             endPoint: CGPoint(x: postX + w * 0.070, y: footY)),
+                       style: StrokeStyle(lineWidth: w * 0.022, lineCap: .round))
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: postBottom - h * 0.006),
+                      width: postWidth * 1.42,
+                      height: h * 0.033)
+    }
+
+    private func paintRopeWrap(in context: inout GraphicsContext,
+                               center: CGPoint,
+                               width: CGFloat,
+                               height: CGFloat,
+                               turns: Int = 8,
+                               showKnot: Bool = true) {
+        for index in 0..<turns {
+            let divisor = CGFloat(max(1, turns - 1))
+            let y = center.y - height * 0.50 + CGFloat(index) * height / divisor
+            let left = CGPoint(x: center.x - width * 0.50, y: y)
+            let right = CGPoint(x: center.x + width * 0.50, y: y)
+            var front = Path()
+            front.move(to: left)
+            front.addQuadCurve(to: right,
+                               control: CGPoint(x: center.x, y: y + height * 0.115))
+            context.stroke(front,
+                           with: .color(Color(red: 0.32, green: 0.19, blue: 0.065).opacity(0.58)),
+                           style: StrokeStyle(lineWidth: max(1.2, height * 0.082), lineCap: .round))
+            context.stroke(front,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.58, green: 0.39, blue: 0.14),
+                                              Color(red: 0.92, green: 0.73, blue: 0.40),
+                                              Color(red: 0.46, green: 0.28, blue: 0.09)]),
+                            startPoint: left,
+                            endPoint: right),
+                           style: StrokeStyle(lineWidth: max(0.85, height * 0.052), lineCap: .round))
+        }
+        if showKnot {
+            let knot = CGRect(x: center.x + width * 0.31,
+                              y: center.y + height * 0.20,
+                              width: width * 0.24,
+                              height: width * 0.20)
+            context.fill(Path(ellipseIn: knot), with: .color(Color(red: 0.43, green: 0.25, blue: 0.08)))
+        }
+    }
+
+    private func paintRopeWrapBack(in context: inout GraphicsContext,
+                                   center: CGPoint,
+                                   width: CGFloat,
+                                   height: CGFloat,
+                                   turns: Int = 8) {
+        for index in 0..<turns {
+            let divisor = CGFloat(max(1, turns - 1))
+            let y = center.y - height * 0.50 + CGFloat(index) * height / divisor
+            let left = CGPoint(x: center.x - width * 0.50, y: y)
+            let right = CGPoint(x: center.x + width * 0.50, y: y)
+            var back = Path()
+            back.move(to: left)
+            back.addQuadCurve(to: right,
+                              control: CGPoint(x: center.x, y: y - height * 0.105))
+            context.stroke(back,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.42, green: 0.26, blue: 0.075),
+                                              Color(red: 0.72, green: 0.52, blue: 0.23),
+                                              Color(red: 0.38, green: 0.22, blue: 0.065)]),
+                            startPoint: left,
+                            endPoint: right),
+                           style: StrokeStyle(lineWidth: max(0.85, height * 0.052), lineCap: .round))
+        }
+    }
+
+    private func paintClimbingNet(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        // The lower beam follows the far shoreline of the pond. Keeping the
+        // original proportions while lowering the whole frame connects the
+        // upper play equipment to the ground plane.
+        let topLeft = CGPoint(x: w * 0.770, y: h * 0.298)
+        let topRight = CGPoint(x: w * 0.982, y: h * 0.285)
+        let bottomLeft = CGPoint(x: w * 0.755, y: h * 0.523)
+        let bottomRight = CGPoint(x: w * 0.978, y: h * 0.510)
+
+        // Two independent hangers explain how the frame is carried.
+        let hangers: [(CGPoint, CGPoint)] = [
+            (CGPoint(x: w * 0.805, y: h * 0.074), topLeft),
+            (CGPoint(x: w * 0.955, y: h * 0.060), topRight)
+        ]
+        for hanger in hangers {
+            var rope = Path()
+            rope.move(to: hanger.0)
+            rope.addCurve(to: hanger.1,
+                          control1: CGPoint(x: hanger.0.x - w * 0.018, y: h * 0.155),
+                          control2: CGPoint(x: hanger.1.x + w * 0.012, y: h * 0.245))
+            context.stroke(rope,
+                           with: .color(Color.black.opacity(0.18)),
+                           style: StrokeStyle(lineWidth: isPad ? 4.5 : 2.8, lineCap: .round))
+            context.stroke(rope,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.80, green: 0.61, blue: 0.29), bark]),
+                            startPoint: hanger.0, endPoint: hanger.1),
+                           style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.9, lineCap: .round))
+        }
+
+        // Diamond rope lattice built cell by cell. Every knot is calculated
+        // from an actual crossing, preventing the isolated brown dots visible
+        // in the previous staggered approximation.
+        let ropeColor = Color(red: 0.72, green: 0.50, blue: 0.22)
+        func netPoint(row: Int, column: Int) -> CGPoint {
+            let rowT = CGFloat(row) / 4
+            let columnT = CGFloat(column) / 4
+            let left = CGPoint(x: topLeft.x + (bottomLeft.x - topLeft.x) * rowT,
+                               y: topLeft.y + (bottomLeft.y - topLeft.y) * rowT)
+            let right = CGPoint(x: topRight.x + (bottomRight.x - topRight.x) * rowT,
+                                y: topRight.y + (bottomRight.y - topRight.y) * rowT)
+            return CGPoint(x: left.x + (right.x - left.x) * columnT,
+                           y: left.y + (right.y - left.y) * columnT)
+        }
+        for row in 0..<4 {
+            for column in 0..<4 {
+                let topA = netPoint(row: row, column: column)
+                let topB = netPoint(row: row, column: column + 1)
+                let bottomA = netPoint(row: row + 1, column: column)
+                let bottomB = netPoint(row: row + 1, column: column + 1)
+                var diamond = Path()
+                diamond.move(to: topA)
+                diamond.addLine(to: bottomB)
+                diamond.move(to: topB)
+                diamond.addLine(to: bottomA)
+                context.stroke(diamond,
+                               with: .color(ropeColor.opacity(0.88)),
+                               style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
+
+                let crossing = CGPoint(x: (topA.x + topB.x + bottomA.x + bottomB.x) * 0.25,
+                                       y: (topA.y + topB.y + bottomA.y + bottomB.y) * 0.25)
+                let knot = CGRect(x: crossing.x - w * 0.005,
+                                  y: crossing.y - w * 0.004,
+                                  width: w * 0.010,
+                                  height: w * 0.008)
+                context.fill(Path(ellipseIn: knot),
+                             with: .color(Color(red: 0.45, green: 0.27, blue: 0.085)))
+                context.stroke(Path(ellipseIn: knot.insetBy(dx: w * 0.0018, dy: w * 0.0013)),
+                               with: .color(Color.white.opacity(0.16)),
+                               lineWidth: isPad ? 0.9 : 0.55)
+            }
+        }
+
+        let beams: [(CGPoint, CGPoint)] = [
+            (topLeft, topRight), (topRight, bottomRight),
+            (bottomRight, bottomLeft), (bottomLeft, topLeft)
+        ]
+        for beam in beams {
+            var log = Path()
+            log.move(to: beam.0)
+            log.addLine(to: beam.1)
+            context.stroke(log, with: .color(Color.black.opacity(0.24)),
+                           style: StrokeStyle(lineWidth: w * 0.028, lineCap: .round))
+            context.stroke(log,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, bark]),
+                            startPoint: beam.0, endPoint: beam.1),
+                           style: StrokeStyle(lineWidth: w * 0.021, lineCap: .round))
+
+            // A narrow irregular grain highlight sharpens the carved timber
+            // without turning the frame into a glossy interface element.
+            let grainStart = CGPoint(x: beam.0.x + (beam.1.x - beam.0.x) * 0.12,
+                                     y: beam.0.y + (beam.1.y - beam.0.y) * 0.12)
+            let grainEnd = CGPoint(x: beam.0.x + (beam.1.x - beam.0.x) * 0.82,
+                                   y: beam.0.y + (beam.1.y - beam.0.y) * 0.82)
+            var grain = Path()
+            grain.move(to: grainStart)
+            grain.addQuadCurve(to: grainEnd,
+                               control: CGPoint(x: (grainStart.x + grainEnd.x) * 0.5 + w * 0.003,
+                                                y: (grainStart.y + grainEnd.y) * 0.5 - h * 0.002))
+            context.stroke(grain,
+                           with: .color(Color(red: 0.93, green: 0.70, blue: 0.34).opacity(0.30)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.85, lineCap: .round))
+        }
+
+        for corner in [topLeft, topRight, bottomLeft, bottomRight] {
+            let cap = CGRect(x: corner.x - w * 0.011, y: corner.y - w * 0.009,
+                             width: w * 0.022, height: w * 0.018)
+            context.fill(Path(ellipseIn: cap), with: .color(Color(red: 0.67, green: 0.43, blue: 0.16)))
+            context.fill(Path(ellipseIn: cap.insetBy(dx: w * 0.005, dy: w * 0.004)),
+                         with: .color(bark.opacity(0.68)))
+
+            // Three tight rope turns make every corner read as a constructed
+            // joint instead of four unrelated logs touching each other.
+            for turn in 0..<3 {
+                let tie = CGRect(x: corner.x - w * 0.015,
+                                 y: corner.y - w * 0.008 + CGFloat(turn) * w * 0.005,
+                                 width: w * 0.030,
+                                 height: w * 0.011)
+                context.stroke(Path(ellipseIn: tie),
+                               with: .color(ropeColor.opacity(0.92)),
+                               style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round))
+            }
+        }
+    }
+
+    private func paintSedgeBank(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        // Several rooted clumps wrap around the collection bin. All bases sit
+        // low in the ground plane, so the bin can naturally occlude their
+        // lower stems when its foreground layer is composited later.
+        let clumps: [(CGFloat, CGFloat, CGFloat, CGFloat, Int)] = [
+            (0.820, 0.785, 0.155, 0.145, 17),
+            (0.735, 0.825, 0.082, 0.090, 10),
+            (0.905, 0.815, 0.115, 0.105, 12),
+            (0.972, 0.855, 0.095, 0.070, 9)
+        ]
+
+        // Broken earth pads and root shadows visually connect each fan to sand.
+        for (index, clump) in clumps.enumerated() {
+            let mound = CGRect(x: w * (clump.0 - clump.3 * 0.52),
+                               y: h * (clump.1 - 0.012),
+                               width: w * clump.3 * 1.04,
+                               height: h * (0.024 + CGFloat(index % 2) * 0.006))
+            context.fill(Path(ellipseIn: mound),
+                         with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.50, green: 0.35, blue: 0.15).opacity(0.90),
+                                              sandDeep.opacity(0.88)]),
+                            startPoint: CGPoint(x: mound.midX, y: mound.minY),
+                            endPoint: CGPoint(x: mound.midX, y: mound.maxY)))
+
+            for rootIndex in 0..<4 {
+                let spread = (CGFloat(rootIndex) - 1.5) * w * clump.3 * 0.18
+                var root = Path()
+                root.move(to: CGPoint(x: w * clump.0, y: h * clump.1))
+                root.addQuadCurve(to: CGPoint(x: w * clump.0 + spread,
+                                               y: h * clump.1 + h * 0.010),
+                                  control: CGPoint(x: w * clump.0 + spread * 0.38,
+                                                   y: h * clump.1 + h * 0.003))
+                context.stroke(root,
+                               with: .color(bark.opacity(0.40)),
+                               style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+            }
+        }
+
+        for (clumpIndex, clump) in clumps.enumerated() {
+            let base = CGPoint(x: w * clump.0, y: h * clump.1)
+            for bladeIndex in 0..<clump.4 {
+                let t = clump.4 > 1 ? CGFloat(bladeIndex) / CGFloat(clump.4 - 1) : 0.5
+                let rootX = base.x + (t - 0.5) * w * clump.3 * 0.66
+                let variedHeight = h * clump.2
+                    * (0.62 + CGFloat((bladeIndex * 7 + clumpIndex * 3) % 7) * 0.065)
+                let lean = (t - 0.5) * w * clump.3 * 0.58
+                var blade = Path()
+                blade.move(to: CGPoint(x: rootX, y: base.y))
+                blade.addCurve(to: CGPoint(x: rootX + lean, y: base.y - variedHeight),
+                               control1: CGPoint(x: rootX - lean * 0.12,
+                                                 y: base.y - variedHeight * 0.38),
+                               control2: CGPoint(x: rootX + lean * 0.58,
+                                                 y: base.y - variedHeight * 0.78))
+                context.stroke(blade,
+                               with: .linearGradient(
+                                Gradient(colors: [Color(red: 0.23, green: 0.34, blue: 0.08),
+                                                  bladeIndex.isMultiple(of: 3) ? leafLight : palette.leaf]),
+                                startPoint: CGPoint(x: rootX, y: base.y),
+                                endPoint: CGPoint(x: rootX + lean, y: base.y - variedHeight)),
+                               style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.8, lineCap: .round))
+            }
+        }
+
+        // Small stones at the outer roots further seat the planting bed.
+        paintRock(in: &context,
+                  center: CGPoint(x: w * 0.748, y: h * 0.832),
+                  radius: w * 0.018)
+        paintRock(in: &context,
+                  center: CGPoint(x: w * 0.938, y: h * 0.842),
+                  radius: w * 0.014)
+    }
+
+    private func paintLeaf(in context: inout GraphicsContext,
+                           center: CGPoint,
+                           length: CGFloat,
+                           angle: Double,
+                           color: Color) {
+        let direction = CGVector(dx: CGFloat(cos(angle)), dy: CGFloat(sin(angle)))
+        let normal = CGVector(dx: -direction.dy, dy: direction.dx)
+        let tip = CGPoint(x: center.x + direction.dx * length * 0.52,
+                          y: center.y + direction.dy * length * 0.52)
+        let root = CGPoint(x: center.x - direction.dx * length * 0.52,
+                           y: center.y - direction.dy * length * 0.52)
+        var leaf = Path()
+        leaf.move(to: root)
+        leaf.addQuadCurve(to: tip,
+                          control: CGPoint(x: center.x + normal.dx * length * 0.30,
+                                           y: center.y + normal.dy * length * 0.30))
+        leaf.addQuadCurve(to: root,
+                          control: CGPoint(x: center.x - normal.dx * length * 0.30,
+                                           y: center.y - normal.dy * length * 0.30))
+        leaf.closeSubpath()
+        context.fill(leaf, with: .linearGradient(
+            Gradient(colors: [color.opacity(0.96), color.opacity(0.68)]),
+            startPoint: root, endPoint: tip
+        ))
+
+        var vein = Path()
+        vein.move(to: CGPoint(x: root.x + direction.dx * length * 0.16,
+                              y: root.y + direction.dy * length * 0.16))
+        vein.addLine(to: CGPoint(x: tip.x - direction.dx * length * 0.12,
+                                 y: tip.y - direction.dy * length * 0.12))
+        context.stroke(vein,
+                       with: .color(Color.white.opacity(0.14)),
+                       style: StrokeStyle(lineWidth: max(0.5, length * 0.035), lineCap: .round))
+    }
+
+    private func paintHangingVines(in context: inout GraphicsContext, size: CGSize) {
+        let vines: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.48, 0.01, 0.46, 0.19),
+            (0.68, 0.02, 0.70, 0.25), (0.86, 0.02, 0.83, 0.34)
+        ]
+        for (index, vine) in vines.enumerated() {
+            let start = CGPoint(x: size.width * vine.0, y: size.height * vine.1)
+            let end = CGPoint(x: size.width * vine.2, y: size.height * vine.3)
+            let direction: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            var strand = Path()
+            strand.move(to: start)
+            strand.addCurve(to: end,
+                            control1: CGPoint(x: start.x + direction * size.width * 0.035,
+                                              y: size.height * vine.3 * 0.35),
+                            control2: CGPoint(x: end.x - direction * size.width * 0.030,
+                                              y: size.height * vine.3 * 0.72))
+            context.stroke(strand,
+                           with: .linearGradient(
+                            Gradient(colors: [savannaGreen, barkLight.opacity(0.90)]),
+                            startPoint: start, endPoint: end),
+                           style: StrokeStyle(lineWidth: isPad ? 2.8 : 1.7, lineCap: .round))
+
+            let curlRadius = size.width * (isPad ? 0.014 : 0.018)
+            var curl = Path()
+            curl.move(to: end)
+            curl.addCurve(to: CGPoint(x: end.x, y: end.y + curlRadius * 1.7),
+                          control1: CGPoint(x: end.x + curlRadius * 1.8, y: end.y - curlRadius * 0.30),
+                          control2: CGPoint(x: end.x + curlRadius * 1.6, y: end.y + curlRadius * 1.9))
+            curl.addCurve(to: CGPoint(x: end.x + curlRadius * 0.35, y: end.y + curlRadius * 0.80),
+                          control1: CGPoint(x: end.x - curlRadius * 0.85, y: end.y + curlRadius * 1.8),
+                          control2: CGPoint(x: end.x - curlRadius * 0.65, y: end.y + curlRadius * 0.72))
+            context.stroke(curl,
+                           with: .color(savannaGreen.opacity(0.88)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.25, lineCap: .round))
+
+        }
+    }
+
+    private func paintAcacia(in context: inout GraphicsContext,
+                             center: CGPoint,
+                             scale: CGFloat,
+                             distant: Bool) {
+        let trunkColor = bark.opacity(distant ? 0.40 : 0.85)
+        let crownY = center.y - scale * 0.57
+        var trunk = Path()
+        trunk.move(to: center)
+        trunk.addCurve(to: CGPoint(x: center.x - scale * 0.025, y: crownY + scale * 0.10),
+                       control1: CGPoint(x: center.x - scale * 0.035, y: center.y - scale * 0.18),
+                       control2: CGPoint(x: center.x + scale * 0.030, y: center.y - scale * 0.38))
+        context.stroke(trunk, with: .color(trunkColor),
+                       style: StrokeStyle(lineWidth: max(1, scale * 0.045), lineCap: .round))
+
+        for direction in [-1.0, 1.0] {
+            var branch = Path()
+            branch.move(to: CGPoint(x: center.x, y: center.y - scale * 0.34))
+            branch.addCurve(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.30,
+                                        y: crownY + scale * 0.035),
+                            control1: CGPoint(x: center.x + CGFloat(direction) * scale * 0.08,
+                                              y: center.y - scale * 0.42),
+                            control2: CGPoint(x: center.x + CGFloat(direction) * scale * 0.18,
+                                              y: crownY + scale * 0.10))
+            context.stroke(branch, with: .color(trunkColor),
+                           style: StrokeStyle(lineWidth: max(0.8, scale * 0.022), lineCap: .round))
+
+            var fork = Path()
+            fork.move(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.16,
+                                  y: crownY + scale * 0.10))
+            fork.addLine(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.39,
+                                     y: crownY + scale * 0.025))
+            context.stroke(fork, with: .color(trunkColor.opacity(0.90)),
+                           style: StrokeStyle(lineWidth: max(0.65, scale * 0.014), lineCap: .round))
+        }
+
+        // Flat-topped but irregular crown, assembled from overlapping masses
+        // rather than one recognisable ellipse.
+        let lobes: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-0.34, 0.00, 0.34, 0.15), (-0.18, -0.055, 0.36, 0.18),
+            (0.02, -0.075, 0.38, 0.20), (0.22, -0.035, 0.34, 0.17),
+            (-0.04, 0.035, 0.60, 0.16)
+        ]
+        for (index, lobe) in lobes.enumerated() {
+            let rect = CGRect(x: center.x + scale * lobe.0 - scale * lobe.2 * 0.5,
+                              y: crownY + scale * lobe.1 - scale * lobe.3 * 0.5,
+                              width: scale * lobe.2,
+                              height: scale * lobe.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color((index < 2 ? leafLight : savannaGreen)
+                            .opacity(distant ? 0.44 + Double(index) * 0.025 : 0.88)))
+        }
+
+        var crownShadow = Path()
+        crownShadow.move(to: CGPoint(x: center.x - scale * 0.42, y: crownY + scale * 0.065))
+        crownShadow.addQuadCurve(to: CGPoint(x: center.x + scale * 0.43, y: crownY + scale * 0.055),
+                                 control: CGPoint(x: center.x, y: crownY + scale * 0.15))
+        context.stroke(crownShadow,
+                       with: .color(savannaGreen.opacity(distant ? 0.28 : 0.58)),
+                       style: StrokeStyle(lineWidth: max(1.2, scale * 0.035), lineCap: .round))
+    }
+
+    private func paintRock(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        var rock = Path()
+        rock.move(to: CGPoint(x: center.x - radius, y: center.y + radius * 0.34))
+        rock.addQuadCurve(to: CGPoint(x: center.x - radius * 0.30, y: center.y - radius * 0.62),
+                          control: CGPoint(x: center.x - radius * 0.76, y: center.y - radius * 0.42))
+        rock.addQuadCurve(to: CGPoint(x: center.x + radius * 0.78, y: center.y + radius * 0.05),
+                          control: CGPoint(x: center.x + radius * 0.30, y: center.y - radius * 0.78))
+        rock.addQuadCurve(to: CGPoint(x: center.x - radius, y: center.y + radius * 0.34),
+                          control: CGPoint(x: center.x + radius * 0.28, y: center.y + radius * 0.58))
+        context.fill(rock, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.48, green: 0.39, blue: 0.26),
+                              Color(red: 0.23, green: 0.18, blue: 0.13)]),
+            startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
+            endPoint: CGPoint(x: center.x + radius, y: center.y + radius)
+        ))
+        var facet = Path()
+        facet.move(to: CGPoint(x: center.x - radius * 0.30, y: center.y - radius * 0.58))
+        facet.addLine(to: CGPoint(x: center.x + radius * 0.10, y: center.y - radius * 0.20))
+        facet.addLine(to: CGPoint(x: center.x + radius * 0.66, y: center.y + radius * 0.02))
+        context.stroke(facet,
+                       with: .color(Color.white.opacity(0.13)),
+                       style: StrokeStyle(lineWidth: max(0.55, radius * 0.055), lineCap: .round))
+        var fissure = Path()
+        fissure.move(to: CGPoint(x: center.x + radius * 0.10, y: center.y - radius * 0.19))
+        fissure.addLine(to: CGPoint(x: center.x - radius * 0.02, y: center.y + radius * 0.12))
+        fissure.addLine(to: CGPoint(x: center.x + radius * 0.13, y: center.y + radius * 0.30))
+        context.stroke(fissure,
+                       with: .color(Color.black.opacity(0.20)),
+                       style: StrokeStyle(lineWidth: max(0.45, radius * 0.040), lineCap: .round))
+    }
+
+    private func paintStump(in context: inout GraphicsContext, rect: CGRect) {
+        context.fill(RoundedRectangle(cornerRadius: rect.width * 0.18, style: .continuous).path(in: rect),
+                     with: .linearGradient(
+                        Gradient(colors: [barkLight, bark, Color(red: 0.19, green: 0.10, blue: 0.04)]),
+                        startPoint: CGPoint(x: rect.minX, y: rect.minY),
+                        endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
+                     ))
+        let top = CGRect(x: rect.minX - rect.width * 0.04,
+                         y: rect.minY - rect.width * 0.15,
+                         width: rect.width * 1.08,
+                         height: rect.width * 0.40)
+        context.fill(Path(ellipseIn: top), with: .color(Color(red: 0.70, green: 0.49, blue: 0.23)))
+        for index in 0..<3 {
+            let inset = top.width * (0.13 + CGFloat(index) * 0.11)
+            context.stroke(Path(ellipseIn: top.insetBy(dx: inset, dy: inset * 0.30)),
+                           with: .color(bark.opacity(0.32)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.3 : 0.9))
+        }
+        for index in 0..<3 {
+            let x = rect.minX + rect.width * (0.28 + CGFloat(index) * 0.22)
+            var grain = Path()
+            grain.move(to: CGPoint(x: x, y: rect.minY + rect.width * 0.30))
+            grain.addCurve(to: CGPoint(x: x - rect.width * 0.05, y: rect.maxY - rect.width * 0.12),
+                           control1: CGPoint(x: x + rect.width * 0.08, y: rect.midY),
+                           control2: CGPoint(x: x - rect.width * 0.08, y: rect.midY))
+            context.stroke(grain, with: .color(Color.white.opacity(0.10)), lineWidth: 1)
+        }
+        for index in 0..<5 {
+            let angle = Double(index) * 1.18 - 0.55
+            let start = CGPoint(x: top.midX + CGFloat(cos(angle)) * top.width * 0.09,
+                                y: top.midY + CGFloat(sin(angle)) * top.height * 0.08)
+            let end = CGPoint(x: top.midX + CGFloat(cos(angle)) * top.width * 0.40,
+                              y: top.midY + CGFloat(sin(angle)) * top.height * 0.38)
+            var split = Path()
+            split.move(to: start)
+            split.addLine(to: end)
+            context.stroke(split,
+                           with: .color(bark.opacity(0.34)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.2 : 0.8, lineCap: .round))
+        }
+
+        // Jagged bark tabs keep the base from ending in a machine-perfect line.
+        for index in 0..<4 {
+            let x = rect.minX + rect.width * (0.14 + CGFloat(index) * 0.24)
+            var tab = Path()
+            tab.move(to: CGPoint(x: x - rect.width * 0.055, y: rect.maxY - rect.width * 0.03))
+            tab.addLine(to: CGPoint(x: x, y: rect.maxY + rect.width * (index.isMultiple(of: 2) ? 0.10 : 0.06)))
+            tab.addLine(to: CGPoint(x: x + rect.width * 0.06, y: rect.maxY - rect.width * 0.025))
+            tab.closeSubpath()
+            context.fill(tab, with: .color(index.isMultiple(of: 2) ? bark : barkLight.opacity(0.72)))
+        }
+    }
+
+    private func paintGrass(in context: inout GraphicsContext, base: CGPoint, height: CGFloat) {
+        for index in 0..<7 {
+            let t = CGFloat(index) / 6
+            let spread = (t - 0.5) * height * 0.92
+            var blade = Path()
+            blade.move(to: base)
+            blade.addQuadCurve(to: CGPoint(x: base.x + spread, y: base.y - height * (0.58 + 0.42 * abs(t - 0.5) * 2)),
+                               control: CGPoint(x: base.x + spread * 0.16, y: base.y - height * 0.58))
+            context.stroke(blade,
+                           with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen),
+                           style: StrokeStyle(lineWidth: max(1, height * 0.055), lineCap: .round))
+        }
+    }
+}
+
+/// Slow dust and tiny water glints keep the habitat alive without adding
+/// decorative symbols or competing with the moving elephant.
+private struct SanctuaryLivingDetails: View {
+    let isPad: Bool
+    let reduceMotion: Bool
+    var isActive: Bool = true
+
+    var body: some View {
+        // Cheap ambient motion on its own clock so it never contends with the
+        // claw's 60 Hz pose. 30 Hz with a handful of solid fills is smoother
+        // than 12 Hz of gradient leaves, and far cheaper to composite.
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !isActive)) { timeline in
+            let time = reduceMotion ? 0 : PromoTrailerRuntime.ambienceClock(timeline.date.timeIntervalSinceReferenceDate)
+            Canvas { context, size in
+                let waterRate = 0.82
+                let rippleRate = 0.24
+                let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
+
+                paintFlyingBirds(in: &context, size: size, time: time)
+                paintWindblownLeaves(in: &context, size: size, time: time)
+
+                // Slow dust motes add life while remaining far quieter than
+                // the claw and without introducing decorative UI symbols.
+                for index in 0..<4 {
+                    let seed = CGFloat((index * 29) % 91) / 91
+                    let x = size.width * (0.16 + seed * 0.68)
+                    let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
+                    let y = size.height * (0.47 - cycle * 0.25)
+                    let mote = CGRect(x: x, y: y,
+                                      width: isPad ? 3.2 : 2.2,
+                                      height: isPad ? 3.2 : 2.2)
+                    context.fill(Path(ellipseIn: mote),
+                                 with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
+                }
+
+                // Slow travelling wavelets stay inside the irregular water
+                // silhouette. Broken strokes feel reflective rather than like
+                // a loading indicator placed over the scenery.
+                for index in 0..<3 {
+                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * waterRate + Double(index) * 0.91))
+                    let y = size.height * (0.557 + CGFloat(index) * 0.018)
+                        + phase * size.height * 0.0018
+                    let startX = size.width * (0.365 + CGFloat(index) * 0.016)
+                        + phase * size.width * 0.008
+                    let endX = size.width * (0.525 + CGFloat(index) * 0.038)
+                        + phase * size.width * 0.006
+                    let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
+                    let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
+
+                    var leftWave = Path()
+                    leftWave.move(to: CGPoint(x: startX, y: y))
+                    leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
+                                      control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
+                                                        y: y - size.height * 0.0035),
+                                      control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
+                                                        y: y + size.height * 0.0020))
+                    var rightWave = Path()
+                    rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
+                    rightWave.addCurve(to: CGPoint(x: endX, y: y),
+                                       control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
+                                                         y: y + size.height * 0.0022),
+                                       control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
+                                                         y: y - size.height * 0.0030))
+                    let opacity = 0.34 - Double(index) * 0.035
+                    let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
+                    context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
+                    context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
+                }
+
+                // Two overlapping rings continuously appear and dissolve, as
+                // if an occasional drop or insect touches the surface.
+                for index in 0..<2 {
+                    let rawPhase = reduceMotion
+                        ? CGFloat(index) * 0.42
+                        : CGFloat((time * rippleRate + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
+                    let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
+                    let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
+                    let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
+                    let ring = CGRect(x: center.x - rippleWidth,
+                                      y: center.y - rippleHeight,
+                                      width: rippleWidth * 2,
+                                      height: rippleHeight * 2)
+                    context.stroke(Path(ellipseIn: ring),
+                                   with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
+                                   style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+                }
+
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func paintFlyingBirds(in context: inout GraphicsContext,
+                                  size: CGSize,
+                                  time: TimeInterval) {
+        let w = size.width
+        let h = size.height
+        for index in 0..<3 {
+            let duration = 13.0 + Double(index) * 2.7
+            let offset = Double(index) * 0.23
+            let progress = reduceMotion
+                ? CGFloat(0.24 + offset * 0.42)
+                : CGFloat((time / duration + offset).truncatingRemainder(dividingBy: 1))
+            let x = w * (-0.08 + progress * 1.16)
+            let baseY = h * (0.245 + CGFloat(index % 3) * 0.038)
+            let bob = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.72 + Double(index))) * h * 0.004
+            let y = baseY + bob
+            let halfSpan = w * (0.011 + CGFloat(index % 2) * 0.004)
+            let flap = reduceMotion
+                ? h * 0.003
+                : CGFloat(sin(time * 3.1 + Double(index) * 1.17)) * h * 0.0048
+
+            var wings = Path()
+            wings.move(to: CGPoint(x: x - halfSpan, y: y + flap * 0.32))
+            wings.addQuadCurve(to: CGPoint(x: x, y: y),
+                               control: CGPoint(x: x - halfSpan * 0.48, y: y - flap))
+            wings.addQuadCurve(to: CGPoint(x: x + halfSpan, y: y + flap * 0.28),
+                               control: CGPoint(x: x + halfSpan * 0.48, y: y - flap * 0.92))
+            context.stroke(wings,
+                           with: .color(Color(red: 0.13, green: 0.15, blue: 0.12).opacity(0.58)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.15,
+                                              lineCap: .round,
+                                              lineJoin: .round))
+
+            let body = CGRect(x: x - halfSpan * 0.14,
+                              y: y - halfSpan * 0.05,
+                              width: halfSpan * 0.28,
+                              height: halfSpan * 0.18)
+            context.fill(Path(ellipseIn: body),
+                         with: .color(Color(red: 0.12, green: 0.14, blue: 0.11).opacity(0.54)))
+        }
+    }
+
+    private func paintWindblownLeaves(in context: inout GraphicsContext,
+                                      size: CGSize,
+                                      time: TimeInterval) {
+        let w = size.width
+        let h = size.height
+        // Six solid ovals at 30 Hz cost less than fourteen gradient leaves
+        // with wakes at 12 Hz, and they no longer hitch the claw clock.
+        for index in 0..<6 {
+            let offset = Double(index) * 0.16
+            let duration = 7.4 + Double(index % 3) * 1.35
+            let progress = reduceMotion
+                ? CGFloat(0.12 + offset * 0.72)
+                : CGFloat((time / duration + offset).truncatingRemainder(dividingBy: 1))
+            let x = w * (-0.08 + progress * 1.16)
+            guard x > -24, x < w + 24 else { continue }
+            let wave = CGFloat(sin(Double(progress) * .pi * 2 + Double(index) * 0.84))
+            let y = h * (0.072 + CGFloat(index % 3) * 0.055 + wave * 0.018)
+            let leafWidth = w * (0.016 + CGFloat(index % 3) * 0.003)
+            let leafHeight = leafWidth * 0.55
+            let leafColor = index.isMultiple(of: 2)
+                ? Color(red: 0.55, green: 0.64, blue: 0.20)
+                : Color(red: 0.29, green: 0.43, blue: 0.10)
+            let rect = CGRect(x: x - leafWidth / 2,
+                              y: y - leafHeight / 2,
+                              width: leafWidth,
+                              height: leafHeight)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(leafColor.opacity(0.72)))
+        }
+    }
+
+}
+
+/// Draw the newly supplied tall bin at its natural width-led scale. Shorter
+/// score targets clip the lower run of the same asset; 50-point boards show
+/// every visible source row without stretching the opening or metalwork.
+private struct CatchBinArtworkView: View, Equatable {
+    let accentColor: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let fullHeight = proxy.size.width
+                * CatchBinArtwork.sourceHeight
+                / CatchBinArtwork.sourceWidth
+            ZStack {
+#if canImport(UIKit)
+                Image(uiImage: ClawArtworkCache.catchBin)
+                    .resizable()
+                    .interpolation(.medium)
+                    .frame(width: proxy.size.width, height: fullHeight)
+
+                // Tint the authored material itself instead of drawing a new
+                // outline. The stronger right-side wash lands on the metal
+                // column while the wood only picks up a restrained reflection.
+                Image(uiImage: ClawArtworkCache.catchBin)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.medium)
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentColor.opacity(0.14), location: 0),
+                                .init(color: accentColor.opacity(0.22), location: 0.52),
+                                .init(color: accentColor.opacity(0.44), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .blendMode(.color)
+                    .frame(width: proxy.size.width, height: fullHeight)
+#else
+                Image(CatchBinArtwork.imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: proxy.size.width, height: fullHeight)
+
+                Image(CatchBinArtwork.imageName)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentColor.opacity(0.14), location: 0),
+                                .init(color: accentColor.opacity(0.22), location: 0.52),
+                                .init(color: accentColor.opacity(0.44), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .blendMode(.color)
+                    .frame(width: proxy.size.width, height: fullHeight)
+#endif
+            }
+            .compositingGroup()
+            .frame(width: proxy.size.width,
+                   height: proxy.size.height,
+                   alignment: .top)
+            .clipped()
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// A narrow, vertically repeating crop of the bin's lower metal column. Each
+/// alternate copy is mirrored so adjacent source edges meet without a seam.
+private struct CatchBinLowerContinuationView: View, Equatable {
+    let sourceEndY: CGFloat
+    let accentColor: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let sourceSliceHeight = min(240, max(1, sourceEndY))
+            let sliceHeight = max(
+                1,
+                sourceSliceHeight * proxy.size.width / CatchBinArtwork.sourceWidth
+            )
+            let copyCount = max(1, Int(ceil(proxy.size.height / sliceHeight)))
+
+            ZStack {
+                VStack(spacing: 0) {
+                    ForEach(0..<copyCount, id: \.self) { index in
+                        CatchBinSourceSlice(
+                            sourceY: sourceEndY - sourceSliceHeight,
+                            sourceHeight: sourceSliceHeight
+                        )
+                        .frame(height: sliceHeight)
+                        .scaleEffect(y: index.isMultiple(of: 2) ? -1 : 1)
+                    }
+                }
+
+                // Continue the same material tint used by the main bin art.
+                // This strip is a separately repeated source crop, so it needs
+                // its own wash to avoid a neutral block in the lower corner.
+                LinearGradient(
+                    stops: [
+                        .init(color: accentColor.opacity(0.22), location: 0),
+                        .init(color: accentColor.opacity(0.44), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .blendMode(.color)
+            }
+            .compositingGroup()
+            .frame(width: proxy.size.width,
+                   height: proxy.size.height,
+                   alignment: .top)
+            .clipped()
+            .mask {
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: proxy.size.width * 0.53)
+                    Rectangle().fill(.white)
+                }
+            }
+        }
+    }
+}
+
+private struct CatchBinSourceSlice: View, Equatable {
+    let sourceY: CGFloat
+    let sourceHeight: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let scale = proxy.size.width / CatchBinArtwork.sourceWidth
+            let fullHeight = CatchBinArtwork.sourceHeight * scale
+#if canImport(UIKit)
+            Image(uiImage: ClawArtworkCache.catchBin)
+                .resizable()
+                .interpolation(.medium)
+                .frame(width: proxy.size.width, height: fullHeight)
+                .offset(y: -sourceY * scale)
+                .frame(width: proxy.size.width,
+                       height: sourceHeight * scale,
+                       alignment: .top)
+                .clipped()
+#else
+            Image(CatchBinArtwork.imageName)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: proxy.size.width, height: fullHeight)
+                .offset(y: -sourceY * scale)
+                .frame(width: proxy.size.width,
+                       height: sourceHeight * scale,
+                       alignment: .top)
+                .clipped()
+#endif
+        }
+        .clipped()
+        .allowsHitTesting(false)
+    }
+}
+
+private struct CatchBinBackView: View, Equatable {
+    let accentColor: Color
+
+    var body: some View {
+        CatchBinArtworkView(accentColor: accentColor)
+            .compositingGroup()
+            .shadow(color: accentColor.opacity(0.32), radius: 12)
+    }
+}
+
+private struct CatchBinFrontView: View, Equatable {
+    let accentColor: Color
+
+    var body: some View {
+        CatchBinArtworkView(accentColor: accentColor)
+            .mask(CatchBinForegroundMask())
+            .allowsHitTesting(false)
+    }
+}
+
+/// The source foreground asset was a second full-size copy of the bin with the
+/// pixels above this rim made transparent. Reconstruct that layer from the one
+/// retained PNG; the points follow the authored rim silhouette at 40 px steps.
+private struct CatchBinForegroundMask: Shape {
+    private static let rim: [CGPoint] = [
+        CGPoint(x: 0, y: 0.252), CGPoint(x: 0.081, y: 0.252),
+        CGPoint(x: 0.108, y: 0.245), CGPoint(x: 0.180, y: 0.250),
+        CGPoint(x: 0.251, y: 0.258), CGPoint(x: 0.323, y: 0.266),
+        CGPoint(x: 0.395, y: 0.274), CGPoint(x: 0.467, y: 0.281),
+        CGPoint(x: 0.539, y: 0.289), CGPoint(x: 0.610, y: 0.294),
+        CGPoint(x: 0.646, y: 0.289), CGPoint(x: 0.718, y: 0.273),
+        CGPoint(x: 0.790, y: 0.258), CGPoint(x: 0.862, y: 0.242),
+        CGPoint(x: 0.889, y: 0.250), CGPoint(x: 1, y: 0.250)
+    ]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard let first = Self.rim.first else { return path }
+        path.move(to: point(first, in: rect))
+        for landmark in Self.rim.dropFirst() {
+            path.addLine(to: point(landmark, in: rect))
+        }
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    private func point(_ point: CGPoint, in rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.minX + rect.width * point.x,
+                y: CatchBinArtwork.y(point.y, in: rect))
+    }
+}
+
+/// Above the front rim the finale remains fully visible while approaching the
+/// opening. Below it, only the bin's own horizontal footprint is allowed. That
+/// prevents a shrinking elephant from peeking out to the left of the bin while
+/// the foreground artwork hides the portion already inside it.
+private struct CatchBinDiveVisibilityMask: Shape {
+    let play: CGRect
+    let bin: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        let rimY = CatchBinArtwork.y(CatchBinArtwork.frontRimYAtMouth, in: bin)
+            - play.minY
+        let visibleMinX = bin.minX - play.minX
+            + bin.width * CatchBinArtwork.visibleMinX
+        let visibleMaxX = bin.minX - play.minX
+            + bin.width * CatchBinArtwork.visibleMaxX
+        var path = Path()
+        path.addRect(CGRect(x: rect.minX,
+                            y: rect.minY,
+                            width: rect.width,
+                            height: max(0, rimY - rect.minY)))
+        path.addRect(CGRect(x: visibleMinX,
+                            y: rimY,
+                            width: max(0, visibleMaxX - visibleMinX),
+                            height: max(0, rect.maxY - rimY)))
+        return path
+    }
+}

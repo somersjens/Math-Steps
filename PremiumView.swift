@@ -803,7 +803,8 @@ extension View {
         if #available(iOS 18.0, *) {
             self
                 .gameEnvironment()
-                .frame(minWidth: UIScreen.main.bounds.width, maxWidth: .infinity, maxHeight: .infinity)
+                .containerRelativeFrame(.horizontal)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // `.page` alone hugs the column's ideal width, so on iPad the
                 // sheet floats inside a dimmed surround. Fitting neither axis
                 // keeps the full page the other games already open at.
@@ -813,7 +814,8 @@ extension View {
         } else {
             self
                 .gameEnvironment()
-                .frame(minWidth: UIScreen.main.bounds.width, maxWidth: .infinity, maxHeight: .infinity)
+                .containerRelativeFrame(.horizontal)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

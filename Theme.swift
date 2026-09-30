@@ -69,10 +69,18 @@ enum CharacterArtworkCache {
     private static var images: [String: UIImage] = [:]
     private static var thumbnails: [String: UIImage] = [:]
 
+    /// Use the trait environment UIKit has made current for this rendering
+    /// context. It can be unspecified during an early prewarm, in which case
+    /// the conservative 3x fallback keeps the cache sharp on every iPhone.
+    private static var displayScale: CGFloat {
+        let scale = UITraitCollection.current.displayScale
+        return scale > 0 ? scale : 3
+    }
+
     /// Longest on-screen portrait is the Premium hero (280pt). Keep a little
     /// headroom for iPad 3x without uploading the full authored canvas.
     private static var displayPixelSide: CGFloat {
-        min(1024, (320 * UIScreen.main.scale).rounded())
+        min(1024, (320 * displayScale).rounded())
     }
 
     static func prewarm() {
@@ -119,7 +127,7 @@ enum CharacterArtworkCache {
             return cached
         }
         lock.unlock()
-        let pixels = max(1, side * UIScreen.main.scale)
+        let pixels = max(1, side * displayScale)
         let sized = DisplayPreparedImage.make(named: name, maxPixel: pixels)
         lock.lock()
         if let cached = thumbnails[key] {

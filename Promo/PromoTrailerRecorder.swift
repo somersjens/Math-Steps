@@ -186,8 +186,6 @@ final class PromoTrailerRecorder {
                                                 presetName: AVAssetExportPresetHighestQuality) else {
             return nil
         }
-        export.outputURL = dest
-        export.outputFileType = .mp4
         export.timeRange = timeRange
         export.shouldOptimizeForNetworkUse = true
         if !mixParams.isEmpty {
@@ -195,10 +193,25 @@ final class PromoTrailerRecorder {
             audioMix.inputParameters = mixParams
             export.audioMix = audioMix
         }
-        await export.export()
-        guard export.status == .completed else {
-            print("PROMO_TRAILER_ERROR export \(export.error?.localizedDescription ?? "mix failed")")
-            return nil
+
+        if #available(iOS 18.0, *) {
+            do {
+                try await export.export(to: dest, as: .mp4)
+            } catch {
+                print("PROMO_TRAILER_ERROR export \(error.localizedDescription)")
+                return nil
+            }
+        } else {
+            // iOS 17 uses the completion-handler based API. Awaiting this
+            // overload keeps the calling code structured while preserving
+            // compatibility with devices that predate export(to:as:).
+            export.outputURL = dest
+            export.outputFileType = .mp4
+            await export.export()
+            guard export.status == .completed else {
+                print("PROMO_TRAILER_ERROR export \(export.error?.localizedDescription ?? "mix failed")")
+                return nil
+            }
         }
         print("PROMO_TRAILER_AUDIO cues=\(cues.count) music=on")
         return dest

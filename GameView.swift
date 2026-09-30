@@ -195,13 +195,6 @@ struct GameView: View {
         .onAppear {
             screenInsets = ScreenSafeArea.current
             model.prepare()
-#if canImport(UIKit)
-            let animal = character
-            Task(priority: .utility) {
-                await Task.yield()
-                ClawArtworkCache.prewarm(character: animal)
-            }
-#endif
         }
 #if canImport(UIKit)
         .onReceive(NotificationCenter.default.publisher(
@@ -338,6 +331,7 @@ struct GameView: View {
                                bottomReserve: screenInsets.bottom,
                                onSelect: model.select,
                                onRewardArrived: model.scoreBubbleArrived,
+                               onCorrectLanding: model.stepLandingCompleted,
                                onEntranceComplete: finishFishEntrance,
                                onLevelCompletionFinished: finishLevelCompletion,
                                onTimeOutFinished: finishTimeOutFinale,

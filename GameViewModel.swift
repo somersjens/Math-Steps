@@ -125,12 +125,20 @@ final class GameViewModel: ObservableObject {
         Task { [weak self] in
             guard let self, let prepared = await self.preparationTask?.value else { return }
             guard self.engine.state == .intro else { return }
-            // Publish the restored progress before publishing the pile. The
-            // playfield derives its remaining nuts from this number; doing it
-            // in the opposite order briefly rendered the complete pile and
-            // then made the already-collected nuts disappear on Continue.
+            // Publish the prepared board while the intro card is still up.
+            // `begin()` will adopt this exact engine later, so the rails,
+            // answer stones and restored route are already behind Start and
+            // cannot pop into existence after the entrance animation.
             self.roundNumber = prepared.engine.roundNumber
+            self.cards = prepared.engine.cards
+            self.currentStep = prepared.engine.currentStep
+            self.highestStep = prepared.engine.highestStep
+            self.round = prepared.engine.round
+            self.routeRounds = prepared.engine.routeRounds
+            self.brokenOptionIDs = prepared.engine.brokenOptionIDs
+            self.brokenRouteOptionIDs = prepared.engine.brokenRouteOptionIDs
             self.clawPuzzle = prepared.engine.clawPuzzle
+            self.collectedNutIDs = prepared.engine.collectedNutIDs
             self.configureTimer(from: prepared.pausedSession)
         }
     }
@@ -141,7 +149,10 @@ final class GameViewModel: ObservableObject {
         let mixedVariant = request.mixedVariant
         let mode = request.mode
         let seed = pausedSession?.puzzleSeed
-        preparationTask = Task.detached(priority: .userInitiated) {
+        // Full-route generation can involve thousands of rejected candidate
+        // sums on larger boards. Utility priority keeps that CPU work from
+        // competing with the cover/start-card animation on the main thread.
+        preparationTask = Task.detached(priority: .utility) {
             let prepared = MemoryGame(level: level,
                                       mixedVariant: mixedVariant,
                                       mode: mode,
@@ -367,34 +378,50 @@ final class GameViewModel: ObservableObject {
         }
 
         schedule(after: delay, token: token) { [weak self] in
-            guard let self else { return }
-            guard self.engine.finishResolving() else { return }
-            if self.pendingTimeExpiry {
-                self.pendingTimeExpiry = false
-                self.engine.expireTime()
-                self.finishSession()
-                self.sync()
-                return
-            }
-            if self.trailerOwnsRounds {
-                // Director will install the next scripted round; stay answering
-                // on the current sum so a factory question cannot leak in.
-                self.engine.trailerResumeAnswering()
-                self.sync()
-                return
-            }
-            self.engine.advance()
-            if self.engine.state == .gameOver {
-                self.finishSession()
-            } else {
-                // Always reopen the fixed route round. After a mistake on the
-                // first sum its stable ID is deliberately unchanged.
-                self.announceRound()
-                self.openRound()
-            }
-            self.sync()
+            self?.finishStepResolution(token: token)
         }
         return true
+    }
+
+    /// The stepping scene reports the exact frame on which a correct jump has
+    /// visibly landed. Advancing here removes the fixed feedback wait while
+    /// the scheduled completion above remains a safe fallback if a scene is
+    /// interrupted before its landing callback.
+    func stepLandingCompleted() {
+        guard case .correct = engine.lastOutcome else { return }
+        let token = generation
+        schedule(after: 0, token: token) { [weak self] in
+            self?.finishStepResolution(token: token)
+        }
+    }
+
+    private func finishStepResolution(token: Int) {
+        guard generation == token,
+              engine.finishResolving() else { return }
+        if pendingTimeExpiry {
+            pendingTimeExpiry = false
+            engine.expireTime()
+            finishSession()
+            sync()
+            return
+        }
+        if trailerOwnsRounds {
+            // Director will install the next scripted round; stay answering
+            // on the current sum so a factory question cannot leak in.
+            engine.trailerResumeAnswering()
+            sync()
+            return
+        }
+        engine.advance()
+        if engine.state == .gameOver {
+            finishSession()
+        } else {
+            // Always reopen the fixed route round. After a mistake on the
+            // first sum its stable ID is deliberately unchanged.
+            announceRound()
+            openRound()
+        }
+        sync()
     }
 
     /// Forwards a nut the elephant dropped in the bin. Any shell with the

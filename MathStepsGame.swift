@@ -34,6 +34,7 @@ struct MathStepsPlayfield: View {
     let bottomReserve: CGFloat
     let onSelect: (UUID) -> Bool
     let onRewardArrived: () -> Void
+    let onCorrectLanding: () -> Void
     let onEntranceComplete: () -> Void
     let onLevelCompletionFinished: () -> Void
     let onTimeOutFinished: () -> Void
@@ -46,13 +47,18 @@ struct MathStepsPlayfield: View {
     @State private var dogScale: CGFloat = 1
     @State private var dogRotation = 0.0
     @State private var dogOpacity = 1.0
-    @State private var dogFrame = 1
-    @State private var dogTracksAnswerRow = false
+    /// Advances only the small sprite view. Keeping authored frame changes out
+    /// of this parent prevents them from interrupting an in-flight camera and
+    /// answer-label animation.
+    @State private var dogAnimationID = 0
     @State private var jumpProgress: CGFloat = 0
     @State private var jumpDestinationX: CGFloat = 0
     @State private var jumpDestinationY: CGFloat = 0
     @State private var jumpLateralArc: CGFloat = 0
     @State private var jumpHeight: CGFloat = 0
+    @State private var jumpFallsThrough = false
+    @State private var jumpFallDestinationY: CGFloat = 0
+    @State private var jumpFallRotation = 0.0
     @State private var landedRound: GameRound?
     @State private var landedLane = 1
     /// The standing answer row stays visually active during flight. Only the
@@ -106,6 +112,18 @@ struct MathStepsPlayfield: View {
         CGFloat(remainingFutureRounds + 1)
     }
 
+    /// Model advancement and the local camera reset arrive in two consecutive
+    /// SwiftUI updates. Render a newly opened round at phase zero immediately,
+    /// so its labels never spend one frame on the previous row's position.
+    private var renderedCameraPhase: CGFloat {
+        if selectedOptionID == nil,
+           rewindPosition == nil,
+           !victoryInProgress {
+            return 0
+        }
+        return cameraPhase
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let layout = StepCourseLayout(size: proxy.size,
@@ -115,34 +133,27 @@ struct MathStepsPlayfield: View {
             let characterSize = character.id == "dog"
                 ? layout.dogSize
                 : layout.dogSize / 1.5
-            let trackedDogDepth = -cameraPhase
-            let renderedDogX = dogTracksAnswerRow
-                ? layout.laneOffset(lane: landedLane, at: trackedDogDepth)
-                : dogX
-            let renderedDogY = dogTracksAnswerRow
-                ? layout.y(at: trackedDogDepth) - layout.baseY
-                : dogY
-            let renderedDogScale = dogTracksAnswerRow
-                ? layout.scale(at: trackedDogDepth)
-                : dogScale
+            let visualCameraPhase = renderedCameraPhase
             let goalDepth = victoryGoalDepth
-                ?? max(0, goalCourseDepth - cameraPhase)
-            // The construction never ends at the destination itself. Rails
-            // continue past the island to a point above the viewport, so the
-            // player cannot see a capped-off bridge when the last rows arrive.
-            let railEndDepth = layout.offscreenRailDepth
+                ?? max(0, goalCourseDepth - visualCameraPhase)
+            // The four supports belong to the route itself. End them inside
+            // the destination's landing collar: the island then hides their
+            // caps and the bridge never appears to continue past the finish.
+            let railEndDepth = goalDepth
             // Background parallax uses the absolute route position. At a
             // question boundary `cameraPhase` returns to zero while the route
             // index advances by one, so their sum stays perfectly continuous.
             let worldTravel = rewindPosition
-                ?? (CGFloat(currentRouteIndex) + cameraPhase)
+                ?? (CGFloat(currentRouteIndex) + visualCameraPhase)
 
             ZStack {
                 StepSky(character: character, travel: worldTravel)
                 FloatingWorld(character: character, isPad: isPad, travel: worldTravel)
-                StepCourseRails(layout: layout,
-                                character: character,
-                                farDepth: railEndDepth)
+                if routeRoundCount > 0 {
+                    StepCourseRails(layout: layout,
+                                    character: character,
+                                    farDepth: railEndDepth)
+                }
                 if let rewindPosition {
                     rewindRows(layout: layout, position: rewindPosition)
                     if rewindPosition <= 0.001 { startDeck(layout: layout) }
@@ -156,8 +167,13 @@ struct MathStepsPlayfield: View {
                 // The bridge enters underneath the destination. Drawing the
                 // island after the distant rows masks their final edge instead
                 // of letting glass continue across the grass.
-                goalIsland(layout: layout, depth: goalDepth)
-                    .opacity(rewindPosition == nil ? 1 : 0)
+                // Before `begin()` has planned the route, a zero-length route
+                // would place the destination at depth one in the middle of
+                // the screen. It does not exist visually until that plan does.
+                if routeRoundCount > 0 {
+                    goalIsland(layout: layout, depth: goalDepth)
+                        .opacity(rewindPosition == nil ? 1 : 0)
+                }
 
                 characterBack
                     .overlay(alignment: .center) {
@@ -173,16 +189,21 @@ struct MathStepsPlayfield: View {
                         }
                     }
                     .frame(width: characterSize, height: characterSize)
-                    .scaleEffect(renderedDogScale)
+                    .scaleEffect(dogScale)
                     .rotationEffect(.degrees(dogRotation))
                     .opacity(dogOpacity)
-                    .position(x: layout.size.width / 2 + renderedDogX,
-                              y: layout.baseY - characterSize * 0.43 + renderedDogY)
+                    .position(x: layout.size.width / 2 + dogX,
+                              y: layout.baseY - characterSize * 0.43 + dogY)
                     .modifier(StepJumpArcModifier(progress: jumpProgress,
                                                   destinationX: jumpDestinationX,
                                                   destinationY: jumpDestinationY,
                                                   lateralArc: jumpLateralArc,
                                                   height: jumpHeight,
+                                                  fallsThrough: jumpFallsThrough,
+                                                  fallDestinationY: jumpFallDestinationY,
+                                                  fallRotation: jumpFallRotation,
+                                                  preservesScale: victoryInProgress
+                                                    && !victoryChestAttached,
                                                   reduceMotion: reduceMotion))
                     .shadow(color: .black.opacity(0.30),
                             radius: jumpProgress > 0 && jumpProgress < 1 ? 15 : 9,
@@ -194,7 +215,7 @@ struct MathStepsPlayfield: View {
                     .accessibilityHidden(true)
 
                 if landingImpact {
-                    let impactDepth = -cameraPhase
+                    let impactDepth = -visualCameraPhase
                     StepLandingImpact(character: character, isPad: isPad)
                         .frame(width: layout.tileWidth * 1.75,
                                height: isPad ? 54 : 38)
@@ -254,7 +275,12 @@ struct MathStepsPlayfield: View {
             }
             .onAppear {
 #if canImport(UIKit)
-                StepDogSpriteCache.prewarm()
+                // Frame 1 is already needed for the first render. Decode the
+                // seven jump frames away from the main actor so opening the
+                // level and animating its start card stay responsive.
+                Task.detached(priority: .utility) {
+                    StepDogSpriteCache.prewarm()
+                }
 #endif
                 restoreLandingIfNeeded(layout: layout)
                 if playsEntrance { playEntrance(layout: layout) }
@@ -272,7 +298,7 @@ struct MathStepsPlayfield: View {
         return ZStack {
             if visibleFutureCount > 0 {
                 ForEach(Array((1...visibleFutureCount).reversed()), id: \.self) { row in
-                    let depth = CGFloat(row) - cameraPhase
+                    let depth = CGFloat(row) - renderedCameraPhase
                     let perspective = layout.tilePerspective(at: depth)
                     let routeIndex = standingIndex + row
                     StepDecorativeRow(character: character,
@@ -280,10 +306,11 @@ struct MathStepsPlayfield: View {
                                       round: routeRounds[routeIndex],
                                       brokenOptionIDs: brokenRouteOptionIDs,
                                       perspective: perspective,
-                                      activeLane: nil)
+                                      mutesNumbers: true,
+                                      usesDetailedEffects: false)
                         .frame(width: layout.courseWidth * perspective.bottomScale,
                                height: layout.tileHeight(at: depth))
-                        .position(x: layout.courseCenterX(cameraPhase: cameraPhase,
+                        .position(x: layout.courseCenterX(cameraPhase: renderedCameraPhase,
                                                           laneOffset: cameraLaneOffset),
                                   y: layout.y(at: depth))
                         .opacity(layout.opacity(at: depth))
@@ -312,7 +339,8 @@ struct MathStepsPlayfield: View {
                                       round: routeRounds[routeIndex],
                                       brokenOptionIDs: brokenRouteOptionIDs,
                                       perspective: perspective,
-                                      activeLane: nil)
+                                      mutesNumbers: true,
+                                      usesDetailedEffects: false)
                         .frame(width: layout.courseWidth * perspective.bottomScale,
                                height: layout.tileHeight(at: depth))
                         .position(x: layout.size.width / 2,
@@ -327,7 +355,7 @@ struct MathStepsPlayfield: View {
     }
 
     private func answerTiles(layout: StepCourseLayout) -> some View {
-        let depth = -cameraPhase
+        let depth = -renderedCameraPhase
         let perspective = layout.tilePerspective(at: depth)
         return HStack(spacing: 0) {
             ForEach(Array((round?.options ?? []).prefix(3).enumerated()), id: \.element.id) { lane, option in
@@ -376,7 +404,7 @@ struct MathStepsPlayfield: View {
         }
         .frame(width: layout.courseWidth * perspective.bottomScale,
                height: layout.tileHeight(at: depth))
-        .position(x: layout.courseCenterX(cameraPhase: cameraPhase,
+        .position(x: layout.courseCenterX(cameraPhase: renderedCameraPhase,
                                           laneOffset: cameraLaneOffset),
                   y: layout.y(at: depth))
         .zIndex(3)
@@ -388,27 +416,32 @@ struct MathStepsPlayfield: View {
                 // During the finale this is the last real stone. Keep it at
                 // the player's feet while the answer-row renderer is removed;
                 // on ordinary jumps it travels behind the camera and exits.
-                let depth = victoryInProgress ? -1 : -1 - cameraPhase
+                let isFreshLanding = selectedOptionID != nil
+                    && landedRound.id == round?.id
+                let depth = victoryInProgress || isFreshLanding
+                    ? -1
+                    : -1 - renderedCameraPhase
                 let perspective = layout.tilePerspective(at: depth)
                 StepDecorativeRow(character: character,
                                   isPad: isPad,
                                   round: landedRound,
                                   brokenOptionIDs: brokenRouteOptionIDs,
                                   perspective: perspective,
-                                  activeLane: nil)
+                                  mutesNumbers: true,
+                                  usesDetailedEffects: true)
                     .frame(width: layout.courseWidth * perspective.bottomScale,
                            height: layout.tileHeight(at: depth))
                     .position(x: layout.size.width / 2,
                               y: layout.y(at: depth))
             } else {
-                let deckDepth = -1 - cameraPhase
+                let deckDepth = -1 - renderedCameraPhase
                 StepStartDeck(character: character,
                               isPad: isPad,
                               hatchOpen: hatchOpen)
                     .frame(width: layout.deckWidth, height: layout.deckHeight)
                     .position(x: layout.size.width / 2,
                               y: layout.y(at: deckDepth) + layout.deckHeight * 0.14)
-                    .scaleEffect(1 + cameraPhase * 0.08)
+                    .scaleEffect(1 + renderedCameraPhase * 0.08)
             }
         }
         .zIndex(4)
@@ -424,7 +457,7 @@ struct MathStepsPlayfield: View {
         return StepGoalIsland(character: character,
                               isPad: isPad,
                               hidesChest: victoryChestAttached)
-            .frame(width: width, height: width * 0.47)
+            .frame(width: width, height: layout.goalHeight(for: width))
             .position(x: layout.size.width / 2,
                       y: layout.y(at: depth))
             .allowsHitTesting(false)
@@ -533,7 +566,8 @@ struct MathStepsPlayfield: View {
     private var characterBack: some View {
         Group {
             if character.id == "dog" {
-                StepDogSprite(frame: dogFrame)
+                StepDogSprite(animationID: dogAnimationID,
+                              reduceMotion: reduceMotion)
             } else {
                 HooklessCharacterArtwork(character: character)
             }
@@ -562,57 +596,60 @@ struct MathStepsPlayfield: View {
     }
 
     private func animateDogJump(token: Int) {
-        guard character.id == "dog" else { return }
-        let timeline: [(frame: Int, time: Double)] = reduceMotion
-            ? [(2, 0), (4, 0.04), (6, 0.08), (8, 0.12), (1, 0.17)]
-            : [(2, 0), (3, 0.08), (4, 0.17), (5, 0.28),
-               (6, 0.40), (7, 0.51), (8, 0.60), (1, 0.70)]
-        for cue in timeline {
-            DispatchQueue.main.asyncAfter(deadline: .now() + cue.time) {
-                guard animationToken == token else { return }
-                dogFrame = cue.frame
-            }
-        }
+        guard character.id == "dog", animationToken == token else { return }
+        dogAnimationID &+= 1
     }
 
     private func playCorrectJump(toLane lane: Int,
                                  token: Int,
                                  layout: StepCourseLayout) {
         let forwardX = layout.laneOffset(lane: lane, at: 0)
-        let forwardY = layout.answerY - layout.baseY
         let standingX = layout.laneOffset(lane: lane, at: -1)
+        let standingY = layout.y(at: -1) - layout.baseY
+        // The landing callback, rather than a fixed model timer, opens the next
+        // round as soon as this visible movement is complete.
+        let travelDuration = reduceMotion ? 0.18 : 0.76
         cameraLaneOffset = 0
         hatchOpen = false
         currentRowNumbersMuted = false
-        dogTracksAnswerRow = false
         jumpProgress = 0
-        jumpDestinationX = forwardX - dogX
-        jumpDestinationY = forwardY - dogY
+        // The character and the chosen stone now arrive at the standing plane
+        // together. Driving both values in one transaction prevents the small
+        // stop that used to occur between the end of the jump and the start of
+        // the camera catch-up.
+        jumpDestinationX = standingX - dogX
+        jumpDestinationY = standingY - dogY
         jumpLateralArc = (forwardX - dogX) * 0.08
         jumpHeight = layout.jumpHeight
+        jumpFallsThrough = false
+        jumpFallDestinationY = 0
+        jumpFallRotation = 0
 
-        // Phase one: the dog really travels to the answer row while the world
-        // remains still. This makes the choice readable and removes the slight
-        // counter-motion caused by moving the camera during the jump itself.
-        withAnimation(.timingCurve(0.24, 0.05, 0.24, 1,
-                                   duration: reduceMotion ? 0.18 : 0.70)) {
+        withAnimation(.timingCurve(0.28, 0.04, 0.18, 1,
+                                   duration: travelDuration)) {
             jumpProgress = 1
-            dogScale = layout.scale(at: 0)
+            cameraPhase = 1
+            // The arc modifier supplies the small airborne contraction. The
+            // standing scale remains one, avoiding a second scale correction
+            // on the landing frame.
+            dogScale = 1
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.18 : 0.70)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + travelDuration) {
             guard animationToken == token else { return }
             landedLane = lane
             var landingTransaction = Transaction()
             landingTransaction.disablesAnimations = true
             withTransaction(landingTransaction) {
-                dogX = forwardX
-                dogY = forwardY
+                dogX = standingX
+                dogY = standingY
                 jumpProgress = 0
                 jumpDestinationX = 0
                 jumpDestinationY = 0
                 jumpLateralArc = 0
                 jumpHeight = 0
+                dogScale = 1
+                landedRound = round
             }
             rewardRise = 0
             rewardVisible = true
@@ -621,36 +658,20 @@ struct MathStepsPlayfield: View {
                 rewardRise = isPad ? 52 : 34
             }
             // Only contact turns this completed row into background context.
+            // The next row inherits this muted state for one frame and then
+            // reveals in `resetForNextQuestion`, making both fades one motion.
             withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.18)) {
                 currentRowNumbersMuted = true
             }
             onRewardArrived()
-        }
-
-        // Phase two: after the landing, the camera catches up. The dog and its
-        // tile follow the exact same perspective curve to the standing plane.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.20 : 0.74)) {
-            guard animationToken == token else { return }
-            dogTracksAnswerRow = true
-            withAnimation(.timingCurve(0.32, 0.0, 0.20, 1,
-                                       duration: reduceMotion ? 0.15 : 0.40)) {
-                cameraPhase = 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.01 : 0.04)) {
+                guard animationToken == token else { return }
+                onCorrectLanding()
             }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.35 : 1.14)) {
-            guard animationToken == token else { return }
-            var standingTransaction = Transaction()
-            standingTransaction.disablesAnimations = true
-            withTransaction(standingTransaction) {
-                dogTracksAnswerRow = false
-                dogX = standingX
-                dogY = 0
-                dogScale = 1
-                landedRound = round
-                landedLane = lane
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                guard animationToken == token else { return }
+                withAnimation(.easeOut(duration: 0.16)) { landingImpact = false }
             }
-            withAnimation(.easeOut(duration: 0.16)) { landingImpact = false }
         }
     }
 
@@ -658,9 +679,8 @@ struct MathStepsPlayfield: View {
                                lane: Int,
                                token: Int,
                                layout: StepCourseLayout) {
-        // Until the dog has actually landed, this is deliberately identical
-        // to a correct jump. The engine already knows the answer is wrong, but
-        // the view withholds that information until the glass gives way.
+        // The engine already knows the answer is wrong, but the view withholds
+        // that information until the continuous flight crosses the glass.
         let forwardX = layout.laneOffset(lane: lane, at: 0)
         let forwardY = layout.answerY - layout.baseY
         let fallDirection: Double = forwardX < dogX ? -22 : 22
@@ -670,70 +690,54 @@ struct MathStepsPlayfield: View {
         shatterProgress = 0
         cameraLaneOffset = 0
         currentRowNumbersMuted = false
-        dogTracksAnswerRow = false
         jumpProgress = 0
         jumpDestinationX = forwardX - dogX
         jumpDestinationY = forwardY - dogY
         jumpLateralArc = (forwardX - dogX) * 0.08
         jumpHeight = layout.jumpHeight
-        withAnimation(.timingCurve(0.24, 0.05, 0.24, 1,
-                                   duration: reduceMotion ? 0.18 : 0.70)) {
-            jumpProgress = 1
-            dogScale = layout.scale(at: 0)
+        jumpFallsThrough = true
+        let outsideBoard = layout.size.height - layout.baseY
+            + layout.dogSize * 1.35
+        jumpFallDestinationY = outsideBoard - dogY
+        jumpFallRotation = fallDirection
+        let approachDuration = reduceMotion ? 0.16 : 0.62
+        let fallDuration = reduceMotion ? 0.16 : 0.62
+        // One linear progress clock owns both halves of the movement. The
+        // custom path crosses the glass at progress 1 and continues along the
+        // same tangent to progress 2, so contact cannot introduce a speed jump.
+        withAnimation(.linear(duration: approachDuration + fallDuration)) {
+            jumpProgress = 2
         }
 
         // Contact is the failure event: glass disappears into loose pieces and
         // the character starts falling on this same frame. There is no stable
         // standing pose on a tile the engine already knows is wrong.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.18 : 0.70)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + approachDuration) {
             guard animationToken == token else { return }
             landedLane = lane
             var impactTransaction = Transaction()
             impactTransaction.disablesAnimations = true
             withTransaction(impactTransaction) {
-                dogX = forwardX
-                dogY = forwardY
-                jumpProgress = 0
-                jumpDestinationX = 0
-                jumpDestinationY = 0
-                jumpLateralArc = 0
-                jumpHeight = 0
                 crackedID = optionID
                 brokenID = optionID
                 shatterProgress = 0
+                // From the break onward the character falls through the
+                // bridge, behind the intact stones from earlier questions.
+                characterAboveDeck = false
             }
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.62)) {
-                landingImpact = true
-            }
-
-            let outsideBoard = layout.size.height - layout.baseY
-                + layout.dogSize * 1.35
-            // Give SwiftUI one render pass with the fragments still occupying
-            // the plate. On the next frame they and the character receive the
-            // same falling animation, so the sheet visibly bursts instead of
-            // cross-fading directly to already-displaced pieces.
+            // Give the newly inserted fragments one render pass at contact,
+            // then let them fall for exactly the remaining half of the same
+            // movement. The character path itself never stops or restarts.
             DispatchQueue.main.async {
                 guard animationToken == token else { return }
-                withAnimation(.easeIn(duration: reduceMotion ? 0.18 : 0.62)) {
+                withAnimation(.easeIn(duration: fallDuration)) {
                     shatterProgress = 1
-                    dogY = outsideBoard
-                    dogRotation = fallDirection
-                    dogScale = 1
-                    dogOpacity = 1
-                }
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.05 : 0.10)) {
-                guard animationToken == token else { return }
-                withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.12)) {
-                    landingImpact = false
                 }
             }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.45 : 1.46)) {
             guard animationToken == token else { return }
-            dogFrame = 1
             dogOpacity = 0
             landedRound = nil
             restartMessageVisible = true
@@ -822,7 +826,6 @@ struct MathStepsPlayfield: View {
         shatterProgress = 0
         rewardVisible = false
         rewardRise = 0
-        currentRowNumbersMuted = false
         landingImpact = false
         cameraPhase = 0
         cameraLaneOffset = 0
@@ -831,8 +834,10 @@ struct MathStepsPlayfield: View {
         jumpDestinationY = 0
         jumpLateralArc = 0
         jumpHeight = 0
+        jumpFallsThrough = false
+        jumpFallDestinationY = 0
+        jumpFallRotation = 0
         rewindPosition = nil
-        dogTracksAnswerRow = false
         characterAboveDeck = true
         liftPlatformVisible = false
         liftPlatformY = 0
@@ -843,8 +848,8 @@ struct MathStepsPlayfield: View {
             landedLane = 1
             dogX = 0
         }
-        dogFrame = 1
         withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.16)) {
+            currentRowNumbersMuted = false
             dogY = 0
             dogScale = 1
             dogRotation = 0
@@ -877,7 +882,6 @@ struct MathStepsPlayfield: View {
         victoryInProgress = false
         victoryGoalDepth = nil
         currentRowNumbersMuted = false
-        dogTracksAnswerRow = false
         hatchOpen = true
         characterAboveDeck = false
         liftPlatformVisible = true
@@ -885,7 +889,6 @@ struct MathStepsPlayfield: View {
         dogY = liftPlatformY
         dogScale = 0.88
         dogOpacity = 0.72
-        dogFrame = 1
 
         // Let the iris finish opening before the platform rises through it.
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.04 : 0.18)) {
@@ -942,7 +945,10 @@ struct MathStepsPlayfield: View {
         withAnimation(.timingCurve(0.24, 0.05, 0.24, 1,
                                    duration: reduceMotion ? 0.22 : 0.82)) {
             jumpProgress = 1
-            dogScale = 0.62
+            // Perspective is already expressed by the world geometry. Keep
+            // the character at its established play size all the way onto the
+            // finish instead of shrinking it a second time during this jump.
+            dogScale = 1
             dogRotation = 0
         }
 
@@ -958,7 +964,7 @@ struct MathStepsPlayfield: View {
                 jumpDestinationY = 0
                 jumpLateralArc = 0
                 jumpHeight = 0
-                dogFrame = 1
+                dogScale = 1
             }
         }
 
@@ -1002,15 +1008,19 @@ struct MathStepsPlayfield: View {
     }
 }
 
-/// One continuous, animatable flight path. `progress` is interpolated by
-/// SwiftUI, so the sine arc is recalculated every frame instead of connecting
-/// two separately animated positions with a visible kink.
+/// One continuous, animatable flight path. Correct jumps use the established
+/// sine arc. Wrong jumps use a cubic approach and tangent-matched fall, both
+/// driven by the same progress value so contact cannot create a visible kink.
 private struct StepJumpArcModifier: AnimatableModifier {
     var progress: CGFloat
     let destinationX: CGFloat
     let destinationY: CGFloat
     let lateralArc: CGFloat
     let height: CGFloat
+    let fallsThrough: Bool
+    let fallDestinationY: CGFloat
+    let fallRotation: Double
+    let preservesScale: Bool
     let reduceMotion: Bool
 
     var animatableData: CGFloat {
@@ -1019,18 +1029,52 @@ private struct StepJumpArcModifier: AnimatableModifier {
     }
 
     func body(content: Content) -> some View {
-        let p = min(1, max(0, progress))
-        let arc = reduceMotion ? 0 : sin(.pi * p)
-        let x = destinationX * p + lateralArc * arc
-        let y = destinationY * p - height * arc
-        let flightScale = 1 - arc * (reduceMotion ? 0 : 0.08)
+        let p = max(0, progress)
+        let contactProgress = min(1, p)
+        let arc = reduceMotion ? 0 : sin(.pi * contactProgress)
+        let regularX = destinationX * contactProgress + lateralArc * arc
+        let regularY = destinationY * contactProgress - height * arc
+        let fallAmount = max(0, min(1, p - 1))
+
+        // A cubic approach gives the wrong jump a real downward tangent at
+        // contact. Its continuation uses that exact derivative, then adds
+        // gravity, forming one C1-continuous curve through the glass.
+        let contactLead = reduceMotion ? CGFloat(0) : min(height * 0.34, 48)
+        let control1 = CGPoint(x: destinationX * 0.30 + lateralArc,
+                               y: reduceMotion ? destinationY * 0.30 : -height)
+        let control2 = CGPoint(x: destinationX * 0.88,
+                               y: destinationY - contactLead)
+        let t = contactProgress
+        let inverse = 1 - t
+        let curveX = 3 * inverse * inverse * t * control1.x
+            + 3 * inverse * t * t * control2.x
+            + t * t * t * destinationX
+        let curveY = 3 * inverse * inverse * t * control1.y
+            + 3 * inverse * t * t * control2.y
+            + t * t * t * destinationY
+        let tangentX = 3 * (destinationX - control2.x)
+        let tangentY = 3 * (destinationY - control2.y)
+        let remainingFall = max(0, fallDestinationY - destinationY - tangentY)
+        let fallX = destinationX + tangentX * fallAmount
+        let fallY = destinationY
+            + tangentY * fallAmount
+            + remainingFall * fallAmount * fallAmount
+        let x = fallsThrough
+            ? (p <= 1 ? curveX : fallX)
+            : regularX
+        let y = fallsThrough
+            ? (p <= 1 ? curveY : fallY)
+            : regularY
+        let flightScale = preservesScale
+            ? 1
+            : 1 - arc * (reduceMotion ? 0 : 0.08)
         let tilt = Double(arc * min(1, abs(lateralArc) / 90))
             * (lateralArc < 0 ? -3 : 3)
 
         content
             .offset(x: x, y: y)
             .scaleEffect(flightScale, anchor: .bottom)
-            .rotationEffect(.degrees(tilt))
+            .rotationEffect(.degrees(tilt + fallRotation * Double(fallAmount)))
     }
 }
 
@@ -1057,6 +1101,51 @@ private struct StepLandingImpact: View {
 
 // MARK: - Perspective layout
 
+/// SwiftUI can only interpolate `Shape.animatableData`. Keeping all fixed
+/// perspective samples in one vector lets the glass outline and its label use
+/// the exact same per-frame geometry instead of each receiving a separate
+/// implicit layout animation.
+private struct StepPerspectiveVector: VectorArithmetic {
+    var values: [CGFloat]
+
+    static var zero: StepPerspectiveVector { StepPerspectiveVector(values: []) }
+
+    static func + (lhs: StepPerspectiveVector,
+                   rhs: StepPerspectiveVector) -> StepPerspectiveVector {
+        combine(lhs, rhs, operation: +)
+    }
+
+    static func - (lhs: StepPerspectiveVector,
+                   rhs: StepPerspectiveVector) -> StepPerspectiveVector {
+        combine(lhs, rhs, operation: -)
+    }
+
+    mutating func scale(by rhs: Double) {
+        let scale = CGFloat(rhs)
+        for index in values.indices { values[index] *= scale }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { result, value in
+            result + Double(value * value)
+        }
+    }
+
+    private static func combine(
+        _ lhs: StepPerspectiveVector,
+        _ rhs: StepPerspectiveVector,
+        operation: (CGFloat, CGFloat) -> CGFloat
+    ) -> StepPerspectiveVector {
+        let count = max(lhs.values.count, rhs.values.count)
+        let values = (0..<count).map { index in
+            let left = lhs.values.indices.contains(index) ? lhs.values[index] : 0
+            let right = rhs.values.indices.contains(index) ? rhs.values[index] : 0
+            return operation(left, right)
+        }
+        return StepPerspectiveVector(values: values)
+    }
+}
+
 private struct StepTilePerspective {
     /// Scale of the support grid at the lower edge of the tile. The row frame
     /// uses this width so its lower corners sit exactly on the four beams.
@@ -1065,6 +1154,50 @@ private struct StepTilePerspective {
     /// Using the full sample set avoids the visible overshoot that a single
     /// quadratic approximation produced on the large nearest row.
     let scaleRatios: [CGFloat]
+
+    /// Exact centroid of the same sampled polygon drawn by
+    /// `BridgeLaneTileShape`. Both the outline and the label therefore use one
+    /// geometry source, including on every interpolated animation frame.
+    func contentCenter(lane: Int, size: CGSize) -> CGPoint {
+        let safeLane = min(max(lane, 0), 2)
+        let leftBoundary = CGFloat(safeLane) - 1.5
+        let rightBoundary = leftBoundary + 1
+        let ratios = scaleRatios.count > 1 ? scaleRatios : [1, 1]
+        let denominator = CGFloat(max(1, ratios.count - 1))
+
+        func point(boundary: CGFloat, sample: Int) -> CGPoint {
+            CGPoint(
+                x: (boundary * ratios[sample] - leftBoundary) * size.width,
+                y: CGFloat(sample) / denominator * size.height
+            )
+        }
+
+        var polygon = [point(boundary: leftBoundary, sample: 0)]
+        polygon.append(contentsOf: ratios.indices.map {
+            point(boundary: rightBoundary, sample: $0)
+        })
+        polygon.append(contentsOf: ratios.indices.reversed().map {
+            point(boundary: leftBoundary, sample: $0)
+        })
+
+        var twiceArea: CGFloat = 0
+        var weightedX: CGFloat = 0
+        var weightedY: CGFloat = 0
+        for index in polygon.indices {
+            let current = polygon[index]
+            let next = polygon[(index + 1) % polygon.count]
+            let cross = current.x * next.y - next.x * current.y
+            twiceArea += cross
+            weightedX += (current.x + next.x) * cross
+            weightedY += (current.y + next.y) * cross
+        }
+
+        guard abs(twiceArea) > 0.001 else {
+            return CGPoint(x: size.width / 2, y: size.height / 2)
+        }
+        return CGPoint(x: weightedX / (3 * twiceArea),
+                       y: weightedY / (3 * twiceArea))
+    }
 }
 
 private struct StepCourseLayout {
@@ -1094,14 +1227,12 @@ private struct StepCourseLayout {
     /// Width now contracts more slowly than before. Distant rails remain wide
     /// enough to read as four separate supports instead of merging to a spike.
     private var widthDecay: CGFloat { 0.88 }
-    /// This floor is only reached after the rails are already above the screen.
+    /// This floor is only reached after the route is already above the screen.
     /// Keeping it below the visible scale prevents the old mid-curve kink.
     private var minimumCourseScale: CGFloat { 0.12 }
-    private var goalWidthDecay: CGFloat { 0.84 }
     /// Ten rows put the last rendered glass completely above the viewport;
-    /// rails continue farther still so their rounded caps are never visible.
+    /// the supports themselves terminate beneath the destination island.
     var offscreenRowDepth: Int { 10 }
-    var offscreenRailDepth: CGFloat { 18 }
     var answerY: CGFloat { y(at: 0) }
     /// The bridge starts wider than the viewport, so the two outside supports
     /// leave the start deck just beyond the screen edges. The answer row has
@@ -1128,12 +1259,6 @@ private struct StepCourseLayout {
         return 0.92 * pow(widthDecay, depth)
     }
 
-    private func naturalGoalScale(at depth: CGFloat) -> CGFloat {
-        if depth <= -1 { return 1 }
-        if depth < 0 { return 0.92 - depth * 0.08 }
-        return 0.92 * pow(goalWidthDecay, depth)
-    }
-
     func scale(at depth: CGFloat) -> CGFloat {
         max(minimumCourseScale, naturalScale(at: depth))
     }
@@ -1148,14 +1273,14 @@ private struct StepCourseLayout {
     func rowWidth(at depth: CGFloat) -> CGFloat { courseWidth * scale(at: depth) }
 
     func goalWidth(at depth: CGFloat) -> CGFloat {
-        // Unlike the rails, the island is allowed to keep shrinking beyond
-        // the minimum course width. This keeps it genuinely hidden above the
-        // screen until the final stretch, then lets it grow in naturally.
-        let minimum = size.width * (isPad ? 0.11 : 0.10)
-        let maximum = min(size.width * (isPad ? 0.70 : 0.78),
-                          isPad ? 560 : 340)
-        let naturalRowWidth = courseWidth * naturalGoalScale(at: depth)
-        return min(maximum, max(minimum, naturalRowWidth * 1.18))
+        // The finish is the last part of the same construction, so its outer
+        // edge is exactly as wide as the three answer stones combined at this
+        // depth. This also lets all four support beams dock inside the island.
+        rowWidth(at: depth)
+    }
+
+    func goalHeight(for width: CGFloat) -> CGFloat {
+        min(width * (isPad ? 0.39 : 0.43), isPad ? 350 : 190)
     }
 
     func laneOffset(lane: Int, at depth: CGFloat) -> CGFloat {
@@ -1177,7 +1302,10 @@ private struct StepCourseLayout {
         let halfHeight = tileHeight(at: depth) / 2
         let bottomDepth = self.depth(at: centerY + halfHeight)
         let bottomScale = scale(at: bottomDepth)
-        let sampleCount = 24
+        // Twelve segments are visually indistinguishable at the rendered tile
+        // sizes, while halving the path work for every lane on every camera
+        // frame compared with the former 24-segment curve.
+        let sampleCount = 12
         var ratios = (0...sampleCount).map { sample in
             let progress = CGFloat(sample) / CGFloat(sampleCount)
             let verticalPosition = centerY - halfHeight
@@ -1268,7 +1396,11 @@ private struct StepCourseRails: View {
                                                                    at: nearDepth),
                                          y: nearY))
 
-                let sampleCount = 180
+                // The supports move through a shallow, monotonic curve. A
+                // smaller sample set stays smooth at Retina resolution and
+                // avoids rebuilding hundreds of invisible line segments while
+                // the camera animates.
+                let sampleCount = 72
                 for sample in 0...sampleCount {
                     let progress = CGFloat(sample) / CGFloat(sampleCount)
                     let depth = nearDepth + (farDepth - nearDepth) * progress
@@ -1291,7 +1423,10 @@ private struct StepDecorativeRow: View {
     let round: GameRound?
     let brokenOptionIDs: Set<UUID>
     let perspective: StepTilePerspective
-    let activeLane: Int?
+    /// Only the active answer row is fully legible. Future, completed and
+    /// rewind rows keep their labels dimmed until they become the active row.
+    let mutesNumbers: Bool
+    let usesDetailedEffects: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -1314,7 +1449,8 @@ private struct StepDecorativeRow: View {
                                           shatterProgress: 0,
                                           shatterDistance: 0,
                                           isHighlighted: false,
-                                          isNumberMuted: activeLane != lane)
+                                          isNumberMuted: mutesNumbers,
+                                          usesDetailedEffects: usesDetailedEffects)
                         }
                     }
                     .frame(width: width, height: proxy.size.height)
@@ -1494,71 +1630,198 @@ private struct StepGoalIsland: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            let edge = isPad ? CGFloat(6) : CGFloat(4)
+            let railWidth = isPad ? CGFloat(15) : CGFloat(10)
+
             ZStack {
+                // One continuous oval, with a slightly lowered second oval
+                // supplying depth. There is deliberately no grass cap or
+                // rectangular dock: the bridge material owns the whole island.
                 Ellipse()
-                    .fill(character.deepColor.opacity(0.38))
-                    .frame(width: proxy.size.width * 0.84, height: proxy.size.height * 0.62)
-                    .offset(y: proxy.size.height * 0.22)
+                    .fill(LinearGradient(colors: [character.deepColor,
+                                                  Color(red: 0.05, green: 0.28, blue: 0.50)],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+                    .frame(width: width * 0.95, height: height * 0.67)
+                    .position(x: width * 0.5, y: height * 0.57)
+                    .shadow(color: .black.opacity(0.32),
+                            radius: isPad ? 14 : 9,
+                            y: isPad ? 11 : 7)
+
                 Ellipse()
-                    .fill(LinearGradient(colors: [Color(red: 0.69, green: 0.91, blue: 0.25),
-                                                  Color(red: 0.24, green: 0.66, blue: 0.18)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: proxy.size.width, height: proxy.size.height * 0.60)
-                    .offset(y: proxy.size.height * 0.03)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.96),
+                                                  character.skyColor.opacity(0.92),
+                                                  character.color.opacity(0.82),
+                                                  character.deepColor.opacity(0.90)],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .frame(width: width, height: height * 0.66)
+                    .overlay {
+                        Ellipse()
+                            .stroke(character.deepColor.opacity(0.72),
+                                    lineWidth: edge)
+                            .overlay {
+                                Ellipse()
+                                    .stroke(.white.opacity(0.72),
+                                            lineWidth: max(1.5, edge * 0.42))
+                                    .padding(.horizontal, width * 0.025)
+                                    .padding(.vertical, height * 0.025)
+                            }
+                    }
+                    .position(x: width * 0.5, y: height * 0.43)
+
+                // Let each outside support curl only a short distance into the
+                // oval rim. The continuation follows the island silhouette;
+                // no thin rail, terminal socket or line crosses the surface.
+                ForEach([-1.0, 1.0], id: \.self) { side in
+                    let start = CGPoint(x: width * (0.5 + CGFloat(side) * 0.46),
+                                        y: height * 0.60)
+                    let end = CGPoint(x: width * (0.5 + CGFloat(side) * 0.42),
+                                      y: height * 0.40)
+                    let control = CGPoint(x: width * (0.5 + CGFloat(side) * 0.495),
+                                          y: height * 0.50)
+                    let rail = Path { path in
+                        path.move(to: start)
+                        path.addQuadCurve(to: end, control: control)
+                    }
+
+                    rail
+                        .stroke(Color.black.opacity(0.22),
+                                style: StrokeStyle(lineWidth: railWidth + edge,
+                                                   lineCap: .round))
+                    rail
+                        .stroke(LinearGradient(colors: [character.deepColor,
+                                                        character.color,
+                                                        character.skyColor],
+                                               startPoint: .bottom,
+                                               endPoint: .top),
+                                style: StrokeStyle(lineWidth: railWidth,
+                                                   lineCap: .round))
+                    rail
+                        .stroke(.white.opacity(0.52),
+                                style: StrokeStyle(lineWidth: max(1.5, railWidth * 0.22),
+                                                   lineCap: .round))
+                }
+
                 if !hidesChest {
                     StepGoalChest()
-                    .frame(width: proxy.size.width * 0.28, height: proxy.size.height * 0.36)
-                    .offset(y: -proxy.size.height * 0.16)
-                    .transition(.scale(scale: 0.35).combined(with: .opacity))
+                        .frame(width: width * 0.23, height: height * 0.33)
+                        .position(x: width * 0.5, y: height * 0.35)
+                        .transition(.scale(scale: 0.35).combined(with: .opacity))
                 }
+
+                // The pennants face away from the centre, share one flagpole
+                // baseline and are visibly planted in the rear island rim.
                 ForEach([-1.0, 1.0], id: \.self) { side in
-                    VStack(spacing: 0) {
-                        FlagShape()
-                            .fill(side < 0 ? Color.pink : Color.orange)
-                            .frame(width: proxy.size.width * 0.15, height: proxy.size.height * 0.18)
-                        Rectangle()
-                            .fill(Color.white.opacity(0.90))
-                            .frame(width: 3, height: proxy.size.height * 0.30)
-                    }
-                    .offset(x: proxy.size.width * 0.28 * side, y: -proxy.size.height * 0.04)
+                    let poleX = width * (0.5 + CGFloat(side) * 0.31)
+                    Capsule()
+                        .fill(LinearGradient(colors: [.white,
+                                                      character.skyColor.opacity(0.82)],
+                                             startPoint: .leading,
+                                             endPoint: .trailing))
+                        .frame(width: isPad ? 7 : 4.5,
+                               height: height * 0.39)
+                        .position(x: poleX, y: height * 0.16)
+                        .shadow(color: .black.opacity(0.20), radius: 2, y: 2)
+
+                    FinishPennantShape(pointsRight: side > 0)
+                        .fill(LinearGradient(colors: side < 0
+                                                ? [character.skyColor, character.deepColor]
+                                                : [Color.yellow, Color.orange],
+                                             startPoint: .topLeading,
+                                             endPoint: .bottomTrailing))
+                        .overlay {
+                            FinishPennantShape(pointsRight: side > 0)
+                                .stroke(.white.opacity(0.78),
+                                        lineWidth: isPad ? 2.5 : 1.5)
+                        }
+                        .frame(width: width * 0.15, height: height * 0.15)
+                        .position(x: poleX + CGFloat(side) * width * 0.075,
+                                  y: -height * 0.005)
+                        .shadow(color: .black.opacity(0.16), radius: 2, y: 2)
+
+                    Circle()
+                        .fill(.white)
+                        .overlay {
+                            Circle().stroke(character.skyColor.opacity(0.72),
+                                            lineWidth: isPad ? 2 : 1)
+                        }
+                        .frame(width: isPad ? 14 : 9,
+                               height: isPad ? 14 : 9)
+                        .position(x: poleX, y: height * 0.34)
                 }
             }
         }
-        .shadow(color: .black.opacity(0.22), radius: 7, y: 5)
     }
 }
 
 private struct StepGoalChest: View {
     var body: some View {
         GeometryReader { proxy in
-            RoundedRectangle(cornerRadius: proxy.size.height * 0.22,
-                             style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 1.0, green: 0.68, blue: 0.10),
-                                              Color(red: 0.76, green: 0.30, blue: 0.03)],
-                                     startPoint: .top, endPoint: .bottom))
-                .overlay {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: proxy.size.height * 0.48, weight: .black))
-                        .foregroundStyle(Color.yellow)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: proxy.size.height * 0.22,
-                                     style: .continuous)
-                        .stroke(.white.opacity(0.24), lineWidth: 1.5)
-                }
-                .shadow(color: .black.opacity(0.24), radius: 4, y: 3)
+            let width = proxy.size.width
+            let height = proxy.size.height
+
+            ZStack {
+                RoundedRectangle(cornerRadius: height * 0.15,
+                                 style: .continuous)
+                    .fill(LinearGradient(colors: [Color(red: 0.97, green: 0.48, blue: 0.07),
+                                                  Color(red: 0.58, green: 0.20, blue: 0.03)],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+                    .frame(height: height * 0.68)
+                    .position(x: width * 0.5, y: height * 0.64)
+
+                RoundedRectangle(cornerRadius: height * 0.22,
+                                 style: .continuous)
+                    .fill(LinearGradient(colors: [Color(red: 1.0, green: 0.79, blue: 0.19),
+                                                  Color(red: 0.86, green: 0.35, blue: 0.03)],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .frame(height: height * 0.50)
+                    .position(x: width * 0.5, y: height * 0.30)
+
+                Rectangle()
+                    .fill(Color(red: 1.0, green: 0.80, blue: 0.22))
+                    .frame(width: width * 0.16, height: height * 0.84)
+                    .position(x: width * 0.5, y: height * 0.52)
+
+                Image(systemName: "star.fill")
+                    .font(.system(size: height * 0.36, weight: .black))
+                    .foregroundStyle(Color.white, Color.yellow)
+                    .shadow(color: Color.orange.opacity(0.72), radius: 2, y: 1)
+                    .position(x: width * 0.5, y: height * 0.59)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: height * 0.18,
+                                 style: .continuous)
+                    .stroke(Color.white.opacity(0.40),
+                            lineWidth: max(1, height * 0.035))
+            }
+            .shadow(color: .black.opacity(0.30), radius: 4, y: 3)
         }
     }
 }
 
-private struct FlagShape: Shape {
+private struct FinishPennantShape: Shape {
+    let pointsRight: Bool
+
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: .zero)
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.28))
-        path.addLine(to: CGPoint(x: rect.width * 0.72, y: rect.height * 0.62))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: 0, y: rect.height * 0.76))
+        if pointsRight {
+            path.move(to: .zero)
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.14))
+            path.addLine(to: CGPoint(x: rect.width * 0.72, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.86))
+            path.addLine(to: CGPoint(x: 0, y: rect.maxY))
+        } else {
+            path.move(to: CGPoint(x: rect.maxX, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: rect.height * 0.14))
+            path.addLine(to: CGPoint(x: rect.width * 0.28, y: rect.midY))
+            path.addLine(to: CGPoint(x: 0, y: rect.height * 0.86))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        }
         path.closeSubpath()
         return path
     }
@@ -1715,10 +1978,10 @@ private struct StepCloudCurtain: View {
 
 // MARK: - Tile and character art
 
-private struct GlassStepTile: View {
+private struct GlassStepTile: View, Animatable {
     let text: String
     let lane: Int
-    let perspective: StepTilePerspective
+    var perspective: StepTilePerspective
     let character: AnimalCharacter
     let isCracked: Bool
     let isBroken: Bool
@@ -1726,6 +1989,17 @@ private struct GlassStepTile: View {
     let shatterDistance: CGFloat
     let isHighlighted: Bool
     let isNumberMuted: Bool
+    var usesDetailedEffects = true
+
+    var animatableData: StepPerspectiveVector {
+        get { StepPerspectiveVector(values: perspective.scaleRatios) }
+        set {
+            perspective = StepTilePerspective(
+                bottomScale: perspective.bottomScale,
+                scaleRatios: newValue.values
+            )
+        }
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -1741,17 +2015,24 @@ private struct GlassStepTile: View {
                                 .stroke(character.skyColor, lineWidth: 2.5)
                         }
                         .overlay {
-                            BridgeLaneTileShape(lane: lane, perspective: perspective)
-                                .stroke(.white.opacity(0.40), lineWidth: 1)
-                                .padding(5)
+                            if usesDetailedEffects {
+                                BridgeLaneTileShape(lane: lane, perspective: perspective)
+                                    .stroke(.white.opacity(0.40), lineWidth: 1)
+                                    .padding(5)
+                            }
                         }
                         .background {
-                            BridgeLaneTileShape(lane: lane, perspective: perspective)
-                                .fill(Color(red: 0.10, green: 0.45, blue: 0.68))
-                                .offset(y: proxy.size.height * 0.14)
+                            if usesDetailedEffects {
+                                BridgeLaneTileShape(lane: lane, perspective: perspective)
+                                    .fill(Color(red: 0.10, green: 0.45, blue: 0.68))
+                                    .offset(y: proxy.size.height * 0.14)
+                            }
                         }
-                        .shadow(color: Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.32),
-                                radius: 7, y: 7)
+                        .shadow(color: usesDetailedEffects
+                                    ? Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.32)
+                                    : .clear,
+                                radius: usesDetailedEffects ? 7 : 0,
+                                y: usesDetailedEffects ? 7 : 0)
 
                     Path { path in
                         path.move(to: CGPoint(x: proxy.size.width * 0.18,
@@ -1763,15 +2044,32 @@ private struct GlassStepTile: View {
                             style: StrokeStyle(lineWidth: 2, lineCap: .round))
 
                     if !text.isEmpty {
-                        Text(verbatim: text)
-                            .font(.system(size: min(proxy.size.width * 0.30, 42),
-                                          weight: .black, design: .rounded))
-                            .foregroundStyle(Color(red: 0.03, green: 0.18, blue: 0.43)
-                                .opacity(isNumberMuted ? 0.34 : 1))
-                            .minimumScaleFactor(0.42)
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .shadow(color: .white.opacity(0.88), radius: 1)
+                        Canvas { context, size in
+                            let center = perspective.contentCenter(
+                                lane: lane,
+                                size: size
+                            )
+                            context.addFilter(.shadow(
+                                color: .white.opacity(0.88),
+                                radius: 1
+                            ))
+                            let label = Text(verbatim: text)
+                                .font(.system(
+                                    size: min(size.width * 0.30, 42),
+                                    weight: .black,
+                                    design: .rounded
+                                ))
+                                .foregroundColor(
+                                    Color(red: 0.03, green: 0.18, blue: 0.43)
+                                        .opacity(isNumberMuted ? 0.34 : 1)
+                                )
+                            context.draw(
+                                context.resolve(label),
+                                at: center,
+                                anchor: .center
+                            )
+                        }
+                        .allowsHitTesting(false)
                     }
                     if isHighlighted {
                         BridgeLaneTileShape(lane: lane, perspective: perspective)
@@ -1964,9 +2262,21 @@ private struct GlassCracks: Shape {
 }
 
 private struct StepDogSprite: View {
-    let frame: Int
+    let animationID: Int
+    let reduceMotion: Bool
+
+    @State private var frame = 1
+    @State private var playbackGeneration = 0
 
     var body: some View {
+        sprite
+            .onChange(of: animationID) { _, _ in
+                playJumpFrames()
+            }
+    }
+
+    @ViewBuilder
+    private var sprite: some View {
 #if canImport(UIKit)
         Image(uiImage: StepDogSpriteCache.image(frame: frame))
             .resizable()
@@ -1979,10 +2289,25 @@ private struct StepDogSprite: View {
             .id(frame)
 #endif
     }
+
+    private func playJumpFrames() {
+        playbackGeneration &+= 1
+        let generation = playbackGeneration
+        let timeline: [(frame: Int, time: Double)] = reduceMotion
+            ? [(2, 0), (4, 0.04), (6, 0.08), (8, 0.12), (1, 0.17)]
+            : [(2, 0), (3, 0.08), (4, 0.17), (5, 0.28),
+               (6, 0.40), (7, 0.51), (8, 0.60), (1, 0.70)]
+        for cue in timeline {
+            DispatchQueue.main.asyncAfter(deadline: .now() + cue.time) {
+                guard playbackGeneration == generation else { return }
+                frame = cue.frame
+            }
+        }
+    }
 }
 
 #if canImport(UIKit)
-private enum StepDogSpriteCache {
+nonisolated private enum StepDogSpriteCache {
     private static let lock = NSLock()
     private static var images: [Int: UIImage] = [:]
 

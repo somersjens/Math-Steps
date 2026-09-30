@@ -44,7 +44,7 @@ struct CurrencyIcon: View {
 /// Decode a catalog PNG once and, when it is larger than anything on screen,
 /// shrink it before it is cached. Hanging layers and portraits are authored
 /// around 1250px; the largest on-screen slot is the 280pt Premium hero.
-enum DisplayPreparedImage {
+nonisolated enum DisplayPreparedImage {
     static func make(named name: String, maxPixel: CGFloat) -> UIImage {
         let image = UIImage(named: name) ?? UIImage()
         let pixelWidth = image.size.width * image.scale

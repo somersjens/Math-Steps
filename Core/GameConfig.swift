@@ -60,7 +60,7 @@ nonisolated public enum GameConfig {
     public static let answerRevealDuration = 0.18
     /// How long correct/wrong feedback stays on screen before the next round.
     public static let correctFeedbackDuration = 0.62
-    public static let wrongFeedbackDuration = 1.48
+    public static let wrongFeedbackDuration = 1.82
     /// Gap between feedback ending and the next round's closed cards appearing.
     public static let roundTransitionDuration = 0.12
 

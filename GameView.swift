@@ -319,6 +319,9 @@ struct GameView: View {
         return ZStack(alignment: .top) {
             MathStepsPlayfield(round: model.round,
                                selectedOptionID: model.selectedOptionID,
+                               brokenOptionIDs: model.brokenOptionIDs,
+                               routeRounds: model.routeRounds,
+                               brokenRouteOptionIDs: model.brokenRouteOptionIDs,
                                currentStep: model.currentStep,
                                highestStep: model.highestStep,
                                maximumSteps: model.maximumRounds,

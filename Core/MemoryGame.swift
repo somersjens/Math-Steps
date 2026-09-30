@@ -95,6 +95,9 @@ nonisolated public final class MemoryGame {
     private var remainingQuestionIndices: [Int] = []
     /// Which puzzle question is currently on the plaque.
     private var standingQuestionIndex: Int?
+    /// Wrong answer lanes stay missing on their fixed route question, even
+    /// after the character falls back to the start.
+    private var brokenOptionLanesByQuestion: [Int: Set<Int>] = [:]
 
     // MARK: Observable state (read by the view)
 
@@ -114,11 +117,38 @@ nonisolated public final class MemoryGame {
     public private(set) var result = SessionResult()
     public private(set) var correctStreak = 0
 
+    /// The missing tiles for the currently displayed question. A resumed
+    /// route rebuilds UUIDs, so these are derived from persisted lane indices.
+    public var brokenOptionIDs: Set<UUID> {
+        guard let questionIndex = standingQuestionIndex,
+              let round,
+              let lanes = brokenOptionLanesByQuestion[questionIndex]
+        else { return [] }
+        return Set(lanes.compactMap { lane in
+            round.options.indices.contains(lane) ? round.options[lane].id : nil
+        })
+    }
+
+    /// The immutable route shown ahead of the player on the bridge.
+    public var routeRounds: [GameRound] { plannedRounds }
+
+    /// Missing tiles across the whole route, not only the standing question.
+    /// This lets a failed choice remain visibly absent while it is still far
+    /// ahead after the player has returned to the start.
+    public var brokenRouteOptionIDs: Set<UUID> {
+        brokenOptionLanesByQuestion.reduce(into: Set<UUID>()) { result, entry in
+            guard plannedRounds.indices.contains(entry.key) else { return }
+            let options = plannedRounds[entry.key].options
+            for lane in entry.value where options.indices.contains(lane) {
+                result.insert(options[lane].id)
+            }
+        }
+    }
+
     /// Set once the session is over; nil while playing.
     public private(set) var gameOverReason: GameOverReason?
 
-    /// A wrong answer leaves the sum standing. Only a correct answer moves the
-    /// session on to the next sum, so the clock is the mistake's only cost.
+    /// Legacy transition flag retained for the scripted promo flow.
     private var repeatsRound = false
     /// Trailer-only cap so a 7-nut teaser can complete without a 45-nut board.
     private var trailerRoundCap: Int?
@@ -191,11 +221,13 @@ nonisolated public final class MemoryGame {
         highestStep = session.highestStep ?? max(currentStep, session.correctAnswers)
         result.highestStep = highestStep
         correctStreak = session.correctStreak ?? 0
-        installPlan(startingAt: session.roundNumber,
+        let routeRound = min(max(1, currentStep + 1), maximumRounds)
+        installPlan(startingAt: routeRound,
                     restoring: session.puzzle,
                     collectedIDs: session.collectedNutIDs,
                     remainingIndices: session.remainingQuestionIndices,
-                    standingIndex: session.standingQuestionIndex)
+                    standingIndex: routeRound - 1,
+                    brokenLanes: session.brokenOptionLanesByQuestion)
         state = .memorising
         return true
     }
@@ -221,7 +253,9 @@ nonisolated public final class MemoryGame {
                              puzzle: clawPuzzle,
                              collectedNutIDs: collectedNutIDs,
                              remainingQuestionIndices: remainingQuestionIndices,
-                             standingQuestionIndex: standingQuestionIndex)
+                             standingQuestionIndex: standingQuestionIndex,
+                             brokenOptionLanesByQuestion: brokenOptionLanesByQuestion
+                                .mapValues { $0.sorted() })
     }
 
     /// The tap that turns the answer cards face down and brings the question
@@ -252,6 +286,9 @@ nonisolated public final class MemoryGame {
         guard state == .answering,
               let round,
               selectedOptionID == nil,
+              let lane = round.options.firstIndex(where: { $0.id == optionID }),
+              !brokenOptionLanesByQuestion[standingQuestionIndex ?? -1,
+                                           default: []].contains(lane),
               let option = round.options.first(where: { $0.id == optionID })
         else {
             // Deliberately leaves `lastOutcome` alone: an ignored tap must not
@@ -307,19 +344,18 @@ nonisolated public final class MemoryGame {
     public func advance() -> GameState {
         guard state == .roundComplete else { return state }
 
-        // Every choice consumes the shown sum. A wrong tile resets the climb,
-        // but the next sum still waits until the fall/lift sequence is done.
+        // The full route is fixed before play. Correct moves to the next fixed
+        // sum. A mistake already reset `currentStep`, so play restarts at the
+        // first sum while every broken lane remains attached to its question.
         repeatsRound = false
-        if roundNumber >= maximumRounds {
+        if currentStep >= maximumRounds {
             finish(reason: .roundsCompleted)
             return state
         }
 
-        if let standing = standingQuestionIndex {
-            remainingQuestionIndices.removeAll { $0 == standing }
-        }
-        roundNumber += 1
-        presentNextAvailableQuestion()
+        roundNumber = currentStep + 1
+        remainingQuestionIndices = Array(currentStep..<maximumRounds)
+        presentQuestion(currentStep)
         preparedRound = nil
         selectedOptionID = nil
         lastOutcome = nil
@@ -335,14 +371,14 @@ nonisolated public final class MemoryGame {
 
     // MARK: - Private
 
-    /// Builds the full sum list and the matching nut pile once, so a level
-    /// never sprouts new answers after the first frame. The next sum is then
-    /// chosen from remaining questions whose answer is already grabable.
+    /// Builds the full ordered sum list and matching answer pile once. Normal
+    /// play follows this fixed route, including after a fall back to the start.
     nonisolated private func installPlan(startingAt number: Int,
                                          restoring savedPuzzle: ClawPuzzle? = nil,
                                          collectedIDs: [UUID]? = nil,
                                          remainingIndices: [Int]? = nil,
-                                         standingIndex: Int? = nil) {
+                                         standingIndex: Int? = nil,
+                                         brokenLanes: [Int: [Int]]? = nil) {
         let puzzle: ClawPuzzle
         if let savedPuzzle, isValidPlan(savedPuzzle) {
             puzzle = savedPuzzle
@@ -363,6 +399,12 @@ nonisolated public final class MemoryGame {
                               targetNutID: puzzle.assignedNut(forQuestionIndex: index)?.id)
         }
         let start = min(max(1, number), max(1, plannedRounds.count))
+        brokenOptionLanesByQuestion = (brokenLanes ?? [:]).reduce(into: [:]) { result, pair in
+            let lanes = Set(pair.value.filter { (0..<GameConfig.answerBubbleCount).contains($0) })
+            if plannedRounds.indices.contains(pair.key), !lanes.isEmpty {
+                result[pair.key] = lanes
+            }
+        }
         if let collectedIDs {
             collectedNutIDs = collectedIDs
         } else {
@@ -378,18 +420,13 @@ nonisolated public final class MemoryGame {
             remainingQuestionIndices = fallbackRemaining
         }
         roundNumber = start
-        if let standingIndex,
-           remainingQuestionIndices.contains(standingIndex) {
-            presentQuestion(standingIndex)
-        } else {
-            presentNextAvailableQuestion()
-        }
+        let routeIndex = min(max(0, standingIndex ?? (start - 1)), plannedRounds.count - 1)
+        presentQuestion(routeIndex)
         preparedRound = nil
     }
 
-    /// Picks the next standing sum from remaining questions whose answer is
-    /// currently grabable. Reeks keeps the earliest available teaching step;
-    /// Random and Mixed draw uniformly from the free answers.
+    /// Keeps the scripted trailer compatible while normal play selects the
+    /// next question by its fixed route position.
     private func presentNextAvailableQuestion() {
         if trailerRoundCap != nil {
             round = plannedRound(number: roundNumber)
@@ -398,40 +435,15 @@ nonisolated public final class MemoryGame {
             }
             return
         }
-        guard let puzzle = clawPuzzle else {
-            round = plannedRound(number: roundNumber)
-            return
-        }
-        let pile = puzzle.remainingNuts(afterGrabbing: collectedNutIDs)
-        let random = RandomSource(seed: puzzleSeed &+ UInt64(collectedNutIDs.count) &+ 0x51E4_A11A)
-        let index = ClawPuzzle.chooseAvailableQuestion(
-            remainingIndices: remainingQuestionIndices,
-            questions: puzzle.questions,
-            pile: pile,
-            prefersEarliest: board.mode == .order,
-            random: random
-        )
-        guard let index else {
-            round = nil
-            standingQuestionIndex = nil
-            return
-        }
-        presentQuestion(index)
+        presentQuestion(min(max(0, currentStep), max(0, plannedRounds.count - 1)))
     }
 
     private func presentQuestion(_ index: Int) {
-        guard let puzzle = clawPuzzle,
-              puzzle.questions.indices.contains(index)
+        guard plannedRounds.indices.contains(index)
         else { return }
         standingQuestionIndex = index
-        let pile = puzzle.remainingNuts(afterGrabbing: collectedNutIDs)
-        let target = ClawPuzzle.grabableTarget(
-            matching: AnswerValue(puzzle.questions[index].correctAnswer),
-            in: pile
-        )
-        round = factory.makeRound(number: roundNumber,
-                                  question: puzzle.questions[index],
-                                  targetNutID: target?.id)
+        roundNumber = index + 1
+        round = plannedRounds[index]
     }
 
     /// A persisted plan is accepted only when it still describes this exact
@@ -470,6 +482,12 @@ nonisolated public final class MemoryGame {
         } else {
             result.wrongAnswers += 1
             correctStreak = 0
+            if let questionIndex = standingQuestionIndex,
+               let round,
+               let lane = round.options.firstIndex(where: { $0.id == selectedID }),
+               !round.options[lane].isCorrect {
+                brokenOptionLanesByQuestion[questionIndex, default: []].insert(lane)
+            }
             currentStep = 0
             repeatsRound = false
             outcome = .wrong(correctOptionID: correctOptionID)

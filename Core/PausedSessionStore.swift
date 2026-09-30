@@ -52,8 +52,11 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// Missing on older saves, which rebuild remaining from `roundNumber`.
     public let remainingQuestionIndices: [Int]?
     /// Which puzzle question is on the plaque. Missing on older saves, which
-    /// pick the next grabable remaining answer instead.
+    /// resume from their stored route position instead.
     public let standingQuestionIndex: Int?
+    /// Permanently broken wrong lanes per predetermined route question.
+    /// Lane indices survive rebuilding the transient option UUIDs on resume.
+    public let brokenOptionLanesByQuestion: [Int: [Int]]?
 
     public init(boardID: String,
                 roundNumber: Int,
@@ -72,7 +75,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 puzzle: ClawPuzzle? = nil,
                 collectedNutIDs: [UUID]? = nil,
                 remainingQuestionIndices: [Int]? = nil,
-                standingQuestionIndex: Int? = nil) {
+                standingQuestionIndex: Int? = nil,
+                brokenOptionLanesByQuestion: [Int: [Int]]? = nil) {
         self.boardID = boardID
         self.roundNumber = roundNumber
         self.cards = cards
@@ -91,6 +95,7 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.collectedNutIDs = collectedNutIDs
         self.remainingQuestionIndices = remainingQuestionIndices
         self.standingQuestionIndex = standingQuestionIndex
+        self.brokenOptionLanesByQuestion = brokenOptionLanesByQuestion
     }
 
     /// A record is only usable if it describes a session that can still be

@@ -60,6 +60,9 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var currentStep = 0
     @Published private(set) var highestStep = 0
     @Published private(set) var selectedOptionID: UUID?
+    @Published private(set) var brokenOptionIDs: Set<UUID> = []
+    @Published private(set) var routeRounds: [GameRound] = []
+    @Published private(set) var brokenRouteOptionIDs: Set<UUID> = []
     @Published private(set) var isGameOver = false
     @Published private(set) var result = SessionResult()
     @Published private(set) var correctStreak = 0
@@ -380,13 +383,12 @@ final class GameViewModel: ObservableObject {
                 self.sync()
                 return
             }
-            let previousRoundID = self.engine.round?.id
             self.engine.advance()
             if self.engine.state == .gameOver {
                 self.finishSession()
-            } else if self.engine.round?.id != previousRoundID {
-                // A new sum is announced and opened. A wrong answer leaves the
-                // same sum in place, and play simply resumes.
+            } else {
+                // Always reopen the fixed route round. After a mistake on the
+                // first sum its stable ID is deliberately unchanged.
                 self.announceRound()
                 self.openRound()
             }
@@ -562,6 +564,9 @@ final class GameViewModel: ObservableObject {
         currentStep = engine.currentStep
         highestStep = engine.highestStep
         selectedOptionID = engine.selectedOptionID
+        brokenOptionIDs = engine.brokenOptionIDs
+        routeRounds = engine.routeRounds
+        brokenRouteOptionIDs = engine.brokenRouteOptionIDs
         // Publish the completed result before the game-over flag. GameView
         // uses its reason to decide whether to play the reef finale first.
         if engine.state == .gameOver { result = engine.result }

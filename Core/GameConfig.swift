@@ -59,8 +59,8 @@ nonisolated public enum GameConfig {
     /// Answer cards fading/scaling in once the question is visible.
     public static let answerRevealDuration = 0.18
     /// How long correct/wrong feedback stays on screen before the next round.
-    public static let correctFeedbackDuration = 0.62
-    public static let wrongFeedbackDuration = 1.82
+    public static let correctFeedbackDuration = 1.08
+    public static let wrongFeedbackDuration = 2.78
     /// Gap between feedback ending and the next round's closed cards appearing.
     public static let roundTransitionDuration = 0.12
 

@@ -60,6 +60,10 @@ nonisolated public struct GameRound: Identifiable, Equatable, Sendable {
 nonisolated public final class RoundFactory {
     private let generator: QuestionGenerator
     private let random: RandomSource
+    /// Kept separate from question generation so laying out answers never
+    /// changes which sums a seed produces. The round number makes the layout
+    /// reproducible after pausing and rebuilding a session.
+    private let answerPositionSeed: UInt64
 
     public init(level: MathLevel,
                 mixedVariant: MixedVariant = .all,
@@ -67,6 +71,8 @@ nonisolated public final class RoundFactory {
                 seed: UInt64? = nil) {
         let random = RandomSource(seed: seed)
         self.random = random
+        self.answerPositionSeed = (seed ?? UInt64.random(in: 1...UInt64.max))
+            ^ 0xA24B_AED4_963E_E407
         self.generator = QuestionGenerator(level: level,
                                            mode: mode,
                                            mixedVariant: mixedVariant,
@@ -102,18 +108,16 @@ nonisolated public final class RoundFactory {
                           targetNutID: UUID? = nil) -> GameRound {
         GameRound(number: number,
                   question: question,
-                  options: makeOptions(for: question),
+                  options: makeOptions(for: question, roundNumber: number),
                   targetNutID: targetNutID)
     }
 
-    /// One correct card plus the required number of unique wrong cards, laid
-    /// out in ascending order. Ordered cards are far easier to hold in mind
-    /// than scattered ones, which is the point of the memorising beat.
-    ///
-    /// The correct answer's position still varies from round to round, because
-    /// where it lands depends on how the distractors compare to it — but it
-    /// never moves once the round is built.
-    private func makeOptions(for question: MathQuestion) -> [AnswerOption] {
+    /// One correct card plus the required number of unique wrong cards. The
+    /// wrong values keep their ascending order, while the correct card gets a
+    /// balanced-random lane. Repeats are allowed, but no lane can ever lead a
+    /// different lane by more than two appearances.
+    private func makeOptions(for question: MathQuestion,
+                             roundNumber: Int) -> [AnswerOption] {
         var options = [AnswerOption(text: question.correctAnswer, isCorrect: true)]
         var used: Set<AnswerValue> = [AnswerValue(question.correctAnswer)]
         for candidate in question.distractors {
@@ -123,6 +127,32 @@ nonisolated public final class RoundFactory {
             used.insert(value)
             options.append(AnswerOption(text: candidate, isCorrect: false))
         }
-        return options.sorted { AnswerValue($0.text) < AnswerValue($1.text) }
+        let ordered = options.sorted { AnswerValue($0.text) < AnswerValue($1.text) }
+        guard let correct = ordered.first(where: \.isCorrect) else { return ordered }
+        var laidOut = ordered.filter { !$0.isCorrect }
+        let lane = min(correctLane(forRound: roundNumber), laidOut.count)
+        laidOut.insert(correct, at: lane)
+        return laidOut
+    }
+
+    /// Replays the tiny deterministic lane sequence up to `roundNumber`.
+    /// A lane remains eligible until it is two uses ahead of the least-used
+    /// lane. This preserves natural-looking consecutive repeats without the
+    /// long-term centre bias caused by sorting around the correct answer.
+    private func correctLane(forRound roundNumber: Int) -> Int {
+        let laneCount = GameConfig.answerBubbleCount
+        guard laneCount > 1 else { return 0 }
+
+        var generator = SeededGenerator(seed: answerPositionSeed)
+        var counts = Array(repeating: 0, count: laneCount)
+        var selected = 0
+
+        for _ in 0..<max(1, roundNumber) {
+            let minimum = counts.min() ?? 0
+            let eligible = counts.indices.filter { counts[$0] <= minimum + 1 }
+            selected = eligible.randomElement(using: &generator) ?? 0
+            counts[selected] += 1
+        }
+        return selected
     }
 }

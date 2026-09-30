@@ -603,37 +603,13 @@ struct MathStepsPlayfield: View {
     private func playCorrectJump(toLane lane: Int,
                                  token: Int,
                                  layout: StepCourseLayout) {
-        let forwardX = layout.laneOffset(lane: lane, at: 0)
-        let standingX = layout.laneOffset(lane: lane, at: -1)
-        let standingY = layout.y(at: -1) - layout.baseY
+        let jump = prepareAnswerJump(toLane: lane,
+                                     fallsThrough: false,
+                                     layout: layout)
         // The landing callback, rather than a fixed model timer, opens the next
         // round as soon as this visible movement is complete.
-        let travelDuration = reduceMotion ? 0.18 : 0.76
-        cameraLaneOffset = 0
-        hatchOpen = false
-        currentRowNumbersMuted = false
-        jumpProgress = 0
-        // The character and the chosen stone now arrive at the standing plane
-        // together. Driving both values in one transaction prevents the small
-        // stop that used to occur between the end of the jump and the start of
-        // the camera catch-up.
-        jumpDestinationX = standingX - dogX
-        jumpDestinationY = standingY - dogY
-        jumpLateralArc = (forwardX - dogX) * 0.08
-        jumpHeight = layout.jumpHeight
-        jumpFallsThrough = false
-        jumpFallDestinationY = 0
-        jumpFallRotation = 0
-
-        withAnimation(.timingCurve(0.28, 0.04, 0.18, 1,
-                                   duration: travelDuration)) {
-            jumpProgress = 1
-            cameraPhase = 1
-            // The arc modifier supplies the small airborne contraction. The
-            // standing scale remains one, avoiding a second scale correction
-            // on the landing frame.
-            dogScale = 1
-        }
+        let travelDuration = jump.duration
+        animateAnswerJump(duration: travelDuration)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + travelDuration) {
             guard animationToken == token else { return }
@@ -641,8 +617,8 @@ struct MathStepsPlayfield: View {
             var landingTransaction = Transaction()
             landingTransaction.disablesAnimations = true
             withTransaction(landingTransaction) {
-                dogX = standingX
-                dogY = standingY
+                dogX = jump.standingX
+                dogY = jump.standingY
                 jumpProgress = 0
                 jumpDestinationX = 0
                 jumpDestinationY = 0
@@ -675,43 +651,76 @@ struct MathStepsPlayfield: View {
         }
     }
 
+    /// Sets up the part of an answer jump that is shared by successful and
+    /// failed answers. A wrong answer must be indistinguishable from a correct
+    /// one until the character actually touches the selected glass plate.
+    private func prepareAnswerJump(toLane lane: Int,
+                                   fallsThrough: Bool,
+                                   layout: StepCourseLayout) -> (standingX: CGFloat,
+                                                                  standingY: CGFloat,
+                                                                  duration: Double) {
+        let forwardX = layout.laneOffset(lane: lane, at: 0)
+        let standingX = layout.laneOffset(lane: lane, at: -1)
+        let standingY = layout.y(at: -1) - layout.baseY
+        cameraLaneOffset = 0
+        hatchOpen = false
+        currentRowNumbersMuted = false
+        jumpProgress = 0
+        // The character and the chosen stone now arrive at the standing plane
+        // together. Driving both values in one transaction prevents the small
+        // stop that used to occur between the end of the jump and the start of
+        // the camera catch-up.
+        jumpDestinationX = standingX - dogX
+        jumpDestinationY = standingY - dogY
+        jumpLateralArc = (forwardX - dogX) * 0.08
+        jumpHeight = layout.jumpHeight
+        jumpFallsThrough = fallsThrough
+        jumpFallDestinationY = 0
+        jumpFallRotation = 0
+
+        return (standingX, standingY, reduceMotion ? 0.18 : 0.76)
+    }
+
+    /// Both outcomes use this exact animation through contact. Failure only
+    /// diverges after progress one, when the selected plate breaks.
+    private func animateAnswerJump(duration: Double) {
+        withAnimation(.timingCurve(0.28, 0.04, 0.18, 1,
+                                   duration: duration)) {
+            jumpProgress = 1
+            cameraPhase = 1
+            // The arc modifier supplies the small airborne contraction. The
+            // standing scale remains one, avoiding a second scale correction
+            // on the landing frame.
+            dogScale = 1
+        }
+    }
+
     private func playWrongJump(optionID: UUID,
                                lane: Int,
                                token: Int,
                                layout: StepCourseLayout) {
         // The engine already knows the answer is wrong, but the view withholds
-        // that information until the continuous flight crosses the glass.
-        let forwardX = layout.laneOffset(lane: lane, at: 0)
-        let forwardY = layout.answerY - layout.baseY
-        let fallDirection: Double = forwardX < dogX ? -22 : 22
+        // that information until the same jump as a correct answer reaches the
+        // glass.
         pendingWrongID = optionID
         crackedID = nil
         brokenID = nil
         shatterProgress = 0
-        cameraLaneOffset = 0
-        currentRowNumbersMuted = false
-        jumpProgress = 0
-        jumpDestinationX = forwardX - dogX
-        jumpDestinationY = forwardY - dogY
-        jumpLateralArc = (forwardX - dogX) * 0.08
-        jumpHeight = layout.jumpHeight
-        jumpFallsThrough = true
+        let jump = prepareAnswerJump(toLane: lane,
+                                     fallsThrough: true,
+                                     layout: layout)
         let outsideBoard = layout.size.height - layout.baseY
             + layout.dogSize * 1.35
         jumpFallDestinationY = outsideBoard - dogY
-        jumpFallRotation = fallDirection
-        let approachDuration = reduceMotion ? 0.16 : 0.62
+        jumpFallRotation = jump.standingX < dogX ? -22 : 22
+        let approachDuration = jump.duration
         let fallDuration = reduceMotion ? 0.16 : 0.62
-        // One linear progress clock owns both halves of the movement. The
-        // custom path crosses the glass at progress 1 and continues along the
-        // same tangent to progress 2, so contact cannot introduce a speed jump.
-        withAnimation(.linear(duration: approachDuration + fallDuration)) {
-            jumpProgress = 2
-        }
+        animateAnswerJump(duration: approachDuration)
 
         // Contact is the failure event: glass disappears into loose pieces and
-        // the character starts falling on this same frame. There is no stable
-        // standing pose on a tile the engine already knows is wrong.
+        // the character starts accelerating vertically on this same frame.
+        // The approach animation ends at rest, so the fall can start at zero
+        // velocity without a pause or a kink.
         DispatchQueue.main.asyncAfter(deadline: .now() + approachDuration) {
             guard animationToken == token else { return }
             landedLane = lane
@@ -725,9 +734,11 @@ struct MathStepsPlayfield: View {
                 // bridge, behind the intact stones from earlier questions.
                 characterAboveDeck = false
             }
+            withAnimation(.linear(duration: fallDuration)) {
+                jumpProgress = 2
+            }
             // Give the newly inserted fragments one render pass at contact,
-            // then let them fall for exactly the remaining half of the same
-            // movement. The character path itself never stops or restarts.
+            // then let them fall with the character's downward acceleration.
             DispatchQueue.main.async {
                 guard animationToken == token else { return }
                 withAnimation(.easeIn(duration: fallDuration)) {
@@ -743,9 +754,10 @@ struct MathStepsPlayfield: View {
             restartMessageVisible = true
 
             let failedIndex = max(0, (round?.number ?? (currentStep + 1)) - 1)
-            // The camera never advanced during the jump, so its absolute route
-            // position is the current question index—not one step beyond it.
-            rewindPosition = CGFloat(failedIndex)
+            // The failed jump used the same camera movement as a successful
+            // one. Start the rewind from that exact visual position so the
+            // bridge cannot jump when it changes renderers.
+            rewindPosition = CGFloat(failedIndex + 1)
             cameraPhase = 0
             DispatchQueue.main.async {
                 guard animationToken == token else { return }
@@ -1008,9 +1020,9 @@ struct MathStepsPlayfield: View {
     }
 }
 
-/// One continuous, animatable flight path. Correct jumps use the established
-/// sine arc. Wrong jumps use a cubic approach and tangent-matched fall, both
-/// driven by the same progress value so contact cannot create a visible kink.
+/// One continuous, animatable flight path. Both outcomes use the established
+/// sine arc through contact. A wrong answer then accelerates straight down,
+/// without inheriting any horizontal motion from the jump.
 private struct StepJumpArcModifier: AnimatableModifier {
     var progress: CGFloat
     let destinationX: CGFloat
@@ -1035,35 +1047,13 @@ private struct StepJumpArcModifier: AnimatableModifier {
         let regularX = destinationX * contactProgress + lateralArc * arc
         let regularY = destinationY * contactProgress - height * arc
         let fallAmount = max(0, min(1, p - 1))
-
-        // A cubic approach gives the wrong jump a real downward tangent at
-        // contact. Its continuation uses that exact derivative, then adds
-        // gravity, forming one C1-continuous curve through the glass.
-        let contactLead = reduceMotion ? CGFloat(0) : min(height * 0.34, 48)
-        let control1 = CGPoint(x: destinationX * 0.30 + lateralArc,
-                               y: reduceMotion ? destinationY * 0.30 : -height)
-        let control2 = CGPoint(x: destinationX * 0.88,
-                               y: destinationY - contactLead)
-        let t = contactProgress
-        let inverse = 1 - t
-        let curveX = 3 * inverse * inverse * t * control1.x
-            + 3 * inverse * t * t * control2.x
-            + t * t * t * destinationX
-        let curveY = 3 * inverse * inverse * t * control1.y
-            + 3 * inverse * t * t * control2.y
-            + t * t * t * destinationY
-        let tangentX = 3 * (destinationX - control2.x)
-        let tangentY = 3 * (destinationY - control2.y)
-        let remainingFall = max(0, fallDestinationY - destinationY - tangentY)
-        let fallX = destinationX + tangentX * fallAmount
-        let fallY = destinationY
-            + tangentY * fallAmount
-            + remainingFall * fallAmount * fallAmount
+        let fallDistance = max(0, fallDestinationY - destinationY)
+        let fallY = destinationY + fallDistance * fallAmount * fallAmount
         let x = fallsThrough
-            ? (p <= 1 ? curveX : fallX)
+            ? (p <= 1 ? regularX : destinationX)
             : regularX
         let y = fallsThrough
-            ? (p <= 1 ? curveY : fallY)
+            ? (p <= 1 ? regularY : fallY)
             : regularY
         let flightScale = preservesScale
             ? 1

@@ -12,6 +12,12 @@ import SwiftUI
 import UIKit
 #endif
 
+private struct QueuedStepAnswer: Equatable {
+    let roundID: UUID
+    let optionID: UUID
+    let lane: Int
+}
+
 struct MathStepsPlayfield: View {
     let round: GameRound?
     let selectedOptionID: UUID?
@@ -19,7 +25,6 @@ struct MathStepsPlayfield: View {
     let routeRounds: [GameRound]
     let brokenRouteOptionIDs: Set<UUID>
     let currentStep: Int
-    let highestStep: Int
     let maximumSteps: Int
     let character: AnimalCharacter
     let isPad: Bool
@@ -30,7 +35,6 @@ struct MathStepsPlayfield: View {
     let playsTimeOutFinale: Bool
     let reduceMotion: Bool
     let tutorialPlan: ClawTutorialPlan
-    let topReserve: CGFloat
     let bottomReserve: CGFloat
     let onSelect: (UUID) -> Bool
     let onRewardArrived: () -> Void
@@ -46,7 +50,10 @@ struct MathStepsPlayfield: View {
     @State private var dogY: CGFloat = 0
     @State private var dogScale: CGFloat = 1
     @State private var dogRotation = 0.0
-    @State private var dogOpacity = 1.0
+    // A new run opens on the level card. Keep the character fully below the
+    // stage until the entrance choreography has positioned it in the shaft;
+    // otherwise its first, standing frame flashes behind the card.
+    @State private var dogOpacity = 0.0
     /// Advances only the small sprite view. Keeping authored frame changes out
     /// of this parent prevents them from interrupting an in-flight camera and
     /// answer-label animation.
@@ -89,6 +96,11 @@ struct MathStepsPlayfield: View {
     /// the island must not take a small step backward when that happens.
     @State private var victoryGoalDepth: CGFloat?
     @State private var animationToken = 0
+    /// Remains true across the brief parent-state hand-off after a landing.
+    /// A tap on the newly revealed row is queued until the completed jump has
+    /// been committed locally, preventing two camera phases from overlapping.
+    @State private var answerJumpInProgress = false
+    @State private var queuedAnswer: QueuedStepAnswer?
 
     /// The route is planned once. Rendering uses a moving window over those
     /// fixed rounds; the destination sits after the final stored round rather
@@ -105,6 +117,12 @@ struct MathStepsPlayfield: View {
 
     private var remainingFutureRounds: Int {
         max(0, routeRoundCount - currentRouteIndex - 1)
+    }
+
+    /// Places the character's authored ground-contact point exactly at the
+    /// centre of the square lift, rather than tuning it with a visual offset.
+    private func startPadDogY(layout: StepCourseLayout) -> CGFloat {
+        layout.liftCenterY(cameraPhase: 0) - layout.baseY
     }
 
     /// One depth position beyond the last remaining question.
@@ -128,11 +146,14 @@ struct MathStepsPlayfield: View {
         GeometryReader { proxy in
             let layout = StepCourseLayout(size: proxy.size,
                                           isPad: isPad,
-                                          topReserve: topReserve,
                                           bottomReserve: bottomReserve)
             let characterSize = character.id == "dog"
                 ? layout.dogSize
                 : layout.dogSize / 1.5
+            let characterFootprint = StepCharacterFootprint(
+                character: character,
+                renderedSide: characterSize
+            )
             let visualCameraPhase = renderedCameraPhase
             let goalDepth = victoryGoalDepth
                 ?? max(0, goalCourseDepth - visualCameraPhase)
@@ -174,6 +195,32 @@ struct MathStepsPlayfield: View {
                     goalIsland(layout: layout, depth: goalDepth)
                         .opacity(rewindPosition == nil ? 1 : 0)
                 }
+
+                // This is a contact shadow on the world surface, rather than
+                // a drop shadow attached to the artwork. It follows the feet
+                // between the start pad and answer stones while the character
+                // itself rises through the jump arc.
+                StepCharacterGroundShadow(character: character)
+                    .frame(width: characterFootprint.width,
+                           height: characterFootprint.depth)
+                    .scaleEffect(dogScale)
+                    .position(x: layout.size.width / 2 + dogX,
+                              y: layout.baseY + dogY
+                                + characterFootprint.verticalOffset)
+                    .modifier(StepGroundShadowMotionModifier(
+                        progress: jumpProgress,
+                        destinationX: jumpDestinationX,
+                        destinationY: jumpDestinationY,
+                        lateralArc: jumpLateralArc,
+                        fallsThrough: jumpFallsThrough,
+                        reduceMotion: reduceMotion
+                    ))
+                    .opacity(dogOpacity * (victoryChestAttached ? 0 : 1))
+                    .animation(.easeOut(duration: 0.18),
+                               value: victoryChestAttached)
+                    .zIndex(characterAboveDeck ? 7.2 : 2.5)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
 
                 characterBack
                     .overlay(alignment: .center) {
@@ -224,37 +271,49 @@ struct MathStepsPlayfield: View {
                                                         at: impactDepth),
                                   y: layout.y(at: impactDepth)
                                     - layout.tileHeight(at: impactDepth) * 0.42)
-                        .zIndex(7)
+                        .zIndex(7.3)
                         .transition(.scale(scale: 0.55).combined(with: .opacity))
                         .allowsHitTesting(false)
                 }
 
+                // Once raised, the square lift top stays behind as a flush
+                // piece of the starting deck. It disappears only when that
+                // deck itself is replaced by the first completed step.
+                if liftPlatformVisible, landedRound == nil {
+                    StepLiftPlatform(character: character,
+                                     isPad: isPad,
+                                     elevation: liftPlatformY)
+                        .frame(width: layout.liftSize,
+                               height: layout.liftHeight)
+                        .scaleEffect(1 + renderedCameraPhase * 0.08)
+                        .position(x: layout.size.width / 2,
+                                  y: layout.liftCenterY(cameraPhase: renderedCameraPhase)
+                                    + liftPlatformY)
+                        // While rising, the lift is behind the deck and is
+                        // visible only through its opening. Once flush it
+                        // becomes part of the deck surface.
+                        .zIndex(liftPlatformY > 0.5 ? 3.5 : 7)
+                        .allowsHitTesting(false)
+                }
                 if hatchOpen, landedRound == nil {
-                    if liftPlatformVisible {
-                        StepLiftPlatform(character: character, isPad: isPad)
-                            .frame(width: layout.liftSize,
-                                   height: layout.liftSize * 0.42)
-                            .position(x: layout.size.width / 2,
-                                      y: layout.baseY + layout.deckHeight * 0.11
-                                        + liftPlatformY)
-                            .zIndex(7)
-                            .allowsHitTesting(false)
-                    }
                     StepHatchFrontLip(character: character, isPad: isPad)
                         .frame(width: layout.liftSize,
-                               height: layout.liftSize * 0.48)
+                               height: layout.liftHeight)
                         .position(x: layout.size.width / 2,
-                                  y: layout.baseY + layout.deckHeight * 0.12)
+                                  y: layout.hatchLipCenterY(cameraPhase: renderedCameraPhase))
                         .zIndex(9)
                         .allowsHitTesting(false)
                 }
 
-                if rewardVisible { rewardBadge(layout: layout) }
+                // The near/lower slice of the start deck is the foreground.
+                // The character therefore finishes between the two deck
+                // layers: in front of the upper slice, behind this one.
+                if landedRound == nil,
+                   rewindPosition.map({ $0 <= 0.001 }) ?? true {
+                    startDeckForeground(layout: layout)
+                }
 
-                progressBadge(layout: layout)
-                promptBar(width: layout.promptWidth)
-                    .position(x: layout.size.width / 2, y: layout.promptY)
-                    .opacity(rewindPosition == nil ? 1 : 0)
+                if rewardVisible { rewardBadge(layout: layout) }
 
                 if restartMessageVisible { restartBadge(layout: layout) }
             }
@@ -262,7 +321,9 @@ struct MathStepsPlayfield: View {
             // round again, including the same UUID. Input unlocking is the
             // reliable round boundary for both that case and normal progress.
             .onChange(of: selectedOptionID) { previous, current in
-                if previous != nil, current == nil { resetForNextQuestion() }
+                if previous != nil, current == nil {
+                    resetForNextQuestion(layout: layout)
+                }
             }
             .onChange(of: playsEntrance) { _, active in
                 if active { playEntrance(layout: layout) }
@@ -448,6 +509,17 @@ struct MathStepsPlayfield: View {
         .allowsHitTesting(false)
     }
 
+    private func startDeckForeground(layout: StepCourseLayout) -> some View {
+        let deckDepth = -1 - renderedCameraPhase
+        return StepStartDeckForeground(character: character, isPad: isPad)
+            .frame(width: layout.deckWidth, height: layout.deckHeight)
+            .position(x: layout.size.width / 2,
+                      y: layout.y(at: deckDepth) + layout.deckHeight * 0.14)
+            .scaleEffect(1 + renderedCameraPhase * 0.08)
+            .zIndex(9.5)
+            .allowsHitTesting(false)
+    }
+
     private func goalIsland(layout: StepCourseLayout, depth: CGFloat) -> some View {
         // The destination always exists in world space. At long distance its
         // natural perspective position and size keep it fully above the
@@ -461,70 +533,6 @@ struct MathStepsPlayfield: View {
             .position(x: layout.size.width / 2,
                       y: layout.y(at: depth))
             .allowsHitTesting(false)
-    }
-
-    // MARK: - HUD
-
-    private func promptBar(width: CGFloat) -> some View {
-        Text(verbatim: round?.question.prompt ?? "")
-            .font(.system(size: isPad ? 43 : 28, weight: .black, design: .rounded))
-            .foregroundStyle(Color(red: 0.06, green: 0.20, blue: 0.43))
-            .minimumScaleFactor(0.42)
-            .lineLimit(1)
-            .padding(.horizontal, isPad ? 28 : 18)
-            .frame(width: max(170, width), height: isPad ? 86 : 62)
-            .background {
-                RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.white,
-                                                  Color(red: 1.0, green: 0.97, blue: 0.88)],
-                                         startPoint: .top,
-                                         endPoint: .bottom))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
-                            .stroke(LinearGradient(colors: [Color(red: 1.0, green: 0.83, blue: 0.28),
-                                                            Color(red: 0.98, green: 0.55, blue: 0.07)],
-                                                   startPoint: .top,
-                                                   endPoint: .bottom),
-                                    lineWidth: isPad ? 7 : 5)
-                    }
-                    .overlay(alignment: .top) {
-                        Capsule()
-                            .fill(.white.opacity(0.75))
-                            .frame(height: isPad ? 4 : 3)
-                            .padding(.horizontal, isPad ? 27 : 20)
-                            .padding(.top, isPad ? 8 : 6)
-                    }
-            }
-            .shadow(color: Color(red: 0.02, green: 0.25, blue: 0.58).opacity(0.30),
-                    radius: 9, y: 6)
-            .id(round?.id)
-            .transition(.scale(scale: 0.94).combined(with: .opacity))
-            .accessibilityIdentifier("claw-prompt")
-    }
-
-    private func progressBadge(layout: StepCourseLayout) -> some View {
-        HStack(spacing: isPad ? 12 : 8) {
-            Image(systemName: "pawprint.fill")
-                .foregroundStyle(Color(red: 1.0, green: 0.78, blue: 0.12))
-            Text(verbatim: "\(LN(currentStep)) / \(LN(maximumSteps))")
-            Rectangle()
-                .fill(.white.opacity(0.28))
-                .frame(width: 1, height: isPad ? 25 : 18)
-            Image(systemName: "star.fill")
-                .foregroundStyle(Color(red: 1.0, green: 0.78, blue: 0.12))
-            Text(verbatim: LN(highestStep))
-        }
-        .font(.system(size: isPad ? 21 : 14, weight: .black, design: .rounded))
-        .foregroundStyle(.white)
-        .padding(.horizontal, isPad ? 18 : 12)
-        .padding(.vertical, isPad ? 11 : 8)
-        .background(Color(red: 0.03, green: 0.18, blue: 0.40).opacity(0.92), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.30), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.24), radius: 5, y: 3)
-        .position(x: layout.size.width / 2,
-                  y: layout.promptY + (isPad ? 68 : 50))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(currentStep), \(highestStep)"))
     }
 
     private func rewardBadge(layout: StepCourseLayout) -> some View {
@@ -576,8 +584,21 @@ struct MathStepsPlayfield: View {
 
     private func choose(_ option: AnswerOption, lane: Int, layout: StepCourseLayout) {
         guard isLive, selectedOptionID == nil else { return }
+
+        // The parent can publish the next round one render pass before this
+        // view has committed the previous landing. Accept that early tap, but
+        // defer resolving it until the local camera and jump state are stable.
+        if answerJumpInProgress {
+            guard queuedAnswer == nil, let roundID = round?.id else { return }
+            queuedAnswer = QueuedStepAnswer(roundID: roundID,
+                                            optionID: option.id,
+                                            lane: lane)
+            return
+        }
+
         onTutorialMove()
         guard onSelect(option.id) else { return }
+        answerJumpInProgress = true
 
         animationToken &+= 1
         let token = animationToken
@@ -712,7 +733,10 @@ struct MathStepsPlayfield: View {
         let outsideBoard = layout.size.height - layout.baseY
             + layout.dogSize * 1.35
         jumpFallDestinationY = outsideBoard - dogY
-        jumpFallRotation = jump.standingX < dogX ? -22 : 22
+        // Keep the artwork upright as well as positionally fixed. The sprite's
+        // visible body is not centred inside its transparent canvas, so rotating
+        // that canvas made a mathematically vertical fall look pulled inward.
+        jumpFallRotation = 0
         let approachDuration = jump.duration
         let fallDuration = reduceMotion ? 0.16 : 0.62
         animateAnswerJump(duration: approachDuration)
@@ -759,6 +783,7 @@ struct MathStepsPlayfield: View {
             // bridge cannot jump when it changes renderers.
             rewindPosition = CGFloat(failedIndex + 1)
             cameraPhase = 0
+            liftPlatformVisible = false
             DispatchQueue.main.async {
                 guard animationToken == token else { return }
                 withAnimation(.timingCurve(0.30, 0.02, 0.18, 1,
@@ -772,6 +797,7 @@ struct MathStepsPlayfield: View {
         // hatch open and bring the character back onto the starting platform.
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.64 : 2.12)) {
             guard animationToken == token else { return }
+            let settledDogY = startPadDogY(layout: layout)
             cameraPhase = 0
             cameraLaneOffset = 0
             jumpProgress = 0
@@ -782,16 +808,16 @@ struct MathStepsPlayfield: View {
             landedRound = nil
             landedLane = 1
             dogX = 0
-            dogY = isPad ? 150 : 105
+            dogY = settledDogY
             dogRotation = 0
-            dogScale = 0.88
-            dogOpacity = 0.68
+            dogScale = 1
+            dogOpacity = 1
             crackedID = nil
             hatchOpen = true
             characterAboveDeck = false
             liftPlatformVisible = true
-            liftPlatformY = isPad ? 165 : 116
-            dogY = liftPlatformY
+            liftPlatformY = layout.deckHeight * 1.25
+            dogY = liftPlatformY + settledDogY
         }
 
         // The opening gets its own readable beat. The lift then rises as a
@@ -800,17 +826,16 @@ struct MathStepsPlayfield: View {
             guard animationToken == token else { return }
             withAnimation(.spring(response: reduceMotion ? 0.18 : 0.46,
                                   dampingFraction: 0.76)) {
-                dogY = 0
+                dogY = startPadDogY(layout: layout)
                 liftPlatformY = 0
-                dogScale = 1
-                dogOpacity = 1
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.83 : 2.68)) {
+        // At the top, move both objects from behind the cut-out deck to its
+        // surface layer. They have remained visible and connected throughout.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.78 : 2.60)) {
             guard animationToken == token else { return }
             characterAboveDeck = true
-            liftPlatformVisible = false
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.86 : 2.73)) {
@@ -826,11 +851,13 @@ struct MathStepsPlayfield: View {
         }
     }
 
-    private func resetForNextQuestion() {
+    private func resetForNextQuestion(layout: StepCourseLayout) {
         // The selected answer also clears when the final round ends. At that
         // boundary the finale owns the camera and character state; treating it
         // as an ordinary next question is what made the island visibly wiggle.
         guard !playsLevelCompletion, !victoryInProgress else { return }
+        let pendingAnswer = queuedAnswer
+        queuedAnswer = nil
         animationToken &+= 1
         pendingWrongID = nil
         crackedID = nil
@@ -851,10 +878,13 @@ struct MathStepsPlayfield: View {
         jumpFallRotation = 0
         rewindPosition = nil
         characterAboveDeck = true
-        liftPlatformVisible = false
+        // A failed jump returns to step zero. In that case the raised square
+        // is now the character's floor and must remain part of the start pad.
+        liftPlatformVisible = currentStep == 0 && entranceCompleted
         liftPlatformY = 0
         victoryChestAttached = false
         victoryGoalDepth = nil
+        answerJumpInProgress = false
         if currentStep == 0 {
             landedRound = nil
             landedLane = 1
@@ -862,12 +892,31 @@ struct MathStepsPlayfield: View {
         }
         withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.16)) {
             currentRowNumbersMuted = false
-            dogY = 0
+            dogY = currentStep == 0 ? startPadDogY(layout: layout) : 0
             dogScale = 1
             dogRotation = 0
             dogOpacity = 1
             restartMessageVisible = false
             hatchOpen = false
+        }
+
+        // Let SwiftUI commit the normalized landing state before beginning the
+        // buffered jump. The user does not pay an extra animation delay: this
+        // resumes on the next main-loop pass, after one coherent render state.
+        if let pendingAnswer {
+            DispatchQueue.main.async {
+                guard !answerJumpInProgress,
+                      isLive,
+                      selectedOptionID == nil,
+                      round?.id == pendingAnswer.roundID,
+                      let option = round?.options.first(where: {
+                          $0.id == pendingAnswer.optionID
+                      })
+                else { return }
+                choose(option,
+                       lane: pendingAnswer.lane,
+                       layout: layout)
+            }
         }
     }
 
@@ -897,27 +946,24 @@ struct MathStepsPlayfield: View {
         hatchOpen = true
         characterAboveDeck = false
         liftPlatformVisible = true
-        liftPlatformY = layout.deckHeight * 0.88
-        dogY = liftPlatformY
-        dogScale = 0.88
-        dogOpacity = 0.72
+        liftPlatformY = layout.deckHeight * 1.25
+        dogY = liftPlatformY + startPadDogY(layout: layout)
+        dogScale = 1
+        dogOpacity = 1
 
-        // Let the iris finish opening before the platform rises through it.
+        // Let the two floor leaves finish opening before the platform rises.
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.04 : 0.18)) {
             guard animationToken == token else { return }
             withAnimation(.spring(response: reduceMotion ? 0.18 : 0.58,
                                   dampingFraction: 0.76)) {
-                dogY = 0
+                dogY = startPadDogY(layout: layout)
                 liftPlatformY = 0
-                dogScale = 1
-                dogOpacity = 1
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.25 : 0.82)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.20 : 0.62)) {
             guard animationToken == token else { return }
             characterAboveDeck = true
-            liftPlatformVisible = false
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.30 : 0.90)) {
@@ -1017,6 +1063,114 @@ struct MathStepsPlayfield: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.72) {
             onTimeOutFinished()
         }
+    }
+}
+
+/// Normalised ground contact for each silhouette. Gameplay artwork lives on
+/// square canvases with very different amounts of transparent space, so using
+/// the canvas width directly would give a penguin and an octopus the same
+/// shadow. These ratios keep the contact patch tied to the rendered character
+/// size while respecting the broad/compact shape of each animal.
+private struct StepCharacterFootprint {
+    let width: CGFloat
+    let depth: CGFloat
+    let verticalOffset: CGFloat
+
+    init(character: AnimalCharacter, renderedSide: CGFloat) {
+        let widthRatio: CGFloat
+        let depthRatio: CGFloat
+
+        switch character.id {
+        case "octopus":
+            widthRatio = 0.64
+            depthRatio = 0.24
+        case "crab":
+            widthRatio = 0.68
+            depthRatio = 0.22
+        case "frog":
+            widthRatio = 0.58
+            depthRatio = 0.22
+        case "elephant", "lion":
+            widthRatio = 0.54
+            depthRatio = 0.23
+        case "bear":
+            widthRatio = 0.49
+            depthRatio = 0.22
+        case "fox":
+            widthRatio = 0.46
+            depthRatio = 0.21
+        case "bunny":
+            widthRatio = 0.44
+            depthRatio = 0.20
+        case "penguin":
+            widthRatio = 0.42
+            depthRatio = 0.20
+        default: // Dog and any future character start from a neutral footprint.
+            widthRatio = 0.44
+            depthRatio = 0.22
+        }
+
+        width = renderedSide * widthRatio
+        depth = max(7, width * depthRatio)
+        // A tiny forward bias puts the ellipse beneath the feet rather than
+        // centred inside them on the strongly foreshortened glass plane.
+        verticalOffset = depth * 0.08
+    }
+}
+
+private struct StepCharacterGroundShadow: View {
+    let character: AnimalCharacter
+
+    var body: some View {
+        ZStack {
+            Ellipse()
+                .fill(Color.black.opacity(0.16))
+                .blur(radius: 4)
+            Ellipse()
+                .fill(character.deepColor.opacity(0.20))
+                .scaleEffect(x: 0.78, y: 0.62)
+                .blur(radius: 1.2)
+        }
+        .compositingGroup()
+    }
+}
+
+/// Projects the jump onto the supporting surface. Horizontal movement follows
+/// the character, but the vertical jump arc becomes distance from the ground:
+/// the shadow contracts, softens and fades at the apex, then regains contact
+/// at the destination. After a wrong tile breaks it quickly disappears into
+/// the opening instead of falling through the air with the character.
+private struct StepGroundShadowMotionModifier: AnimatableModifier {
+    var progress: CGFloat
+    let destinationX: CGFloat
+    let destinationY: CGFloat
+    let lateralArc: CGFloat
+    let fallsThrough: Bool
+    let reduceMotion: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let p = max(0, progress)
+        let contactProgress = min(1, p)
+        let airborne = reduceMotion ? 0 : sin(.pi * contactProgress)
+        let surfaceX = destinationX * contactProgress + lateralArc * airborne
+        let surfaceY = destinationY * contactProgress
+        let fallProgress = max(0, min(1, p - 1))
+        let fallVisibility = fallsThrough
+            ? max(0, 1 - fallProgress * 3.5)
+            : 1
+        let elevationVisibility = 1 - airborne * 0.48
+
+        content
+            .offset(x: surfaceX, y: surfaceY)
+            .scaleEffect(x: 1 - airborne * 0.34,
+                         y: 1 - airborne * 0.50)
+            .blur(radius: airborne * 3.5)
+            .opacity(Double(elevationVisibility * fallVisibility))
     }
 }
 
@@ -1193,11 +1347,7 @@ private struct StepTilePerspective {
 private struct StepCourseLayout {
     let size: CGSize
     let isPad: Bool
-    let topReserve: CGFloat
     let bottomReserve: CGFloat
-
-    var promptY: CGFloat { topReserve + (isPad ? 54 : 45) }
-    var promptWidth: CGFloat { min(size.width - (isPad ? 210 : 116), isPad ? 590 : 430) }
     /// The former horizon sat well inside the playfield, making both the last
     /// rail caps and the final rendered row visible. Put the convergence point
     /// just above the physical screen instead; HUD elements mask the bridge as
@@ -1241,7 +1391,17 @@ private struct StepCourseLayout {
     /// making its wider bottom edge screen-wide still exposes both side cuts.
     var deckWidth: CGFloat { size.width * 1.20 }
     var deckHeight: CGFloat { isPad ? 190 : 132 }
-    var liftSize: CGFloat { min(deckHeight * 0.78, dogSize * 0.68) }
+    /// A square floor plate seen in perspective: its projected depth is
+    /// shorter than its width, while the corners stay straight rather than
+    /// reading as the old oval iris.
+    var liftSize: CGFloat { deckHeight * 0.82 }
+    var liftHeight: CGFloat { deckHeight * 0.54 }
+    func liftCenterY(cameraPhase: CGFloat) -> CGFloat {
+        y(at: -1 - cameraPhase) + deckHeight * 0.18
+    }
+    func hatchLipCenterY(cameraPhase: CGFloat) -> CGFloat {
+        liftCenterY(cameraPhase: cameraPhase)
+    }
     var jumpHeight: CGFloat { min(isPad ? 210 : 145, (baseY - answerY) * 0.72) }
     private func naturalScale(at depth: CGFloat) -> CGFloat {
         if depth <= -1 { return 1 }
@@ -1498,13 +1658,114 @@ private struct StepStartDeck: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let hatchHeight = proxy.size.height * 0.68
-            let hatchWidth = hatchHeight * 1.20
+            // This is a square opening in the deck's world plane. Perspective
+            // compresses its depth, so its on-screen width is intentionally
+            // larger than its height.
+            let hatchHeight = proxy.size.height * 0.54
+            let hatchWidth = hatchHeight * 1.52
+            let hatchOffset = proxy.size.height * 0.04
             let deckGradient = LinearGradient(colors: [Color.white.opacity(0.95),
                                                         Color(red: 0.35, green: 0.83, blue: 1.0),
                                                         character.color.opacity(0.62)],
                                                startPoint: .topLeading,
                                                endPoint: .bottomTrailing)
+            ZStack {
+                ZStack {
+                    GlassPerspectiveShape(inset: 0.035)
+                        .fill(Color(red: 0.08, green: 0.37, blue: 0.60))
+                        .offset(y: proxy.size.height * 0.12)
+
+                    GlassPerspectiveShape(inset: 0.045)
+                        .fill(deckGradient)
+                        .overlay {
+                            GlassPerspectiveShape(inset: 0.045)
+                                .stroke(character.skyColor, lineWidth: isPad ? 7 : 5)
+                        }
+                        .shadow(color: Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.34),
+                                radius: 12, y: 9)
+
+                    Path { path in
+                        path.move(to: CGPoint(x: proxy.size.width * 0.16,
+                                              y: proxy.size.height * 0.22))
+                        path.addLine(to: CGPoint(x: proxy.size.width * 0.48,
+                                                y: proxy.size.height * 0.09))
+                    }
+                    .stroke(.white.opacity(0.74),
+                            style: StrokeStyle(lineWidth: isPad ? 4 : 2.5,
+                                               lineCap: .round))
+                }
+                // The open hatch is a real alpha cut-out. The character and
+                // lift remain behind the deck while rising and can therefore
+                // only be seen through this square opening.
+                .mask {
+                    StepDeckOpeningMask(isOpen: hatchOpen,
+                                        width: hatchWidth,
+                                        height: hatchHeight,
+                                        offsetY: hatchOffset)
+                }
+
+                // Two flush floor leaves slide aside to reveal a square shaft.
+                // Closed, only their centre seam is visible; once the lift is
+                // up its matching top plate becomes the new piece of floor.
+                ZStack {
+                    GlassPerspectiveShape(inset: 0.11)
+                        .stroke(Color(red: 0.02, green: 0.12, blue: 0.25).opacity(0.72),
+                                lineWidth: isPad ? 10 : 7)
+                        .opacity(hatchOpen ? 1 : 0)
+
+                    ForEach([-1.0, 1.0], id: \.self) { side in
+                        Rectangle()
+                            .fill(deckGradient)
+                            .frame(width: hatchWidth * 0.52, height: hatchHeight)
+                            .offset(x: CGFloat(side) * hatchWidth
+                                        * (hatchOpen ? 0.72 : 0.25))
+                            // When closed, the real deck surface is visible;
+                            // no subtly mismatched patch remains behind.
+                            .opacity(hatchOpen ? 1 : 0)
+                    }
+
+                    Rectangle()
+                        .fill(Color(red: 0.04, green: 0.27, blue: 0.43).opacity(0.24))
+                        .frame(width: isPad ? 2 : 1.5,
+                               height: hatchHeight * 0.56)
+                        .opacity(hatchOpen ? 0 : 1)
+                }
+                .frame(width: hatchWidth, height: hatchHeight)
+                .clipShape(GlassPerspectiveShape(inset: 0.11))
+                .overlay {
+                    GlassPerspectiveShape(inset: 0.11)
+                        .stroke(Color(red: 0.04, green: 0.22, blue: 0.39),
+                                lineWidth: isPad ? 8 : 5)
+                        .opacity(hatchOpen ? 1 : 0)
+                }
+                .offset(y: hatchOffset)
+                .shadow(color: .black.opacity(hatchOpen ? 0.48 : 0), radius: 8, y: 4)
+                .animation(.timingCurve(0.30, 0.02, 0.20, 1,
+                                        duration: 0.30),
+                           value: hatchOpen)
+            }
+        }
+    }
+}
+
+/// Permanent near-field slice of the starting deck. Its opening stays cut out
+/// after the lift settles, so the square remains visible while the surrounding
+/// lower deck continues to render in front of the character.
+private struct StepStartDeckForeground: View {
+    let character: AnimalCharacter
+    let isPad: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let hatchHeight = proxy.size.height * 0.54
+            let hatchWidth = hatchHeight * 1.52
+            let hatchOffset = proxy.size.height * 0.04
+            let deckGradient = LinearGradient(colors: [Color.white.opacity(0.95),
+                                                        Color(red: 0.35, green: 0.83, blue: 1.0),
+                                                        character.color.opacity(0.62)],
+                                               startPoint: .topLeading,
+                                               endPoint: .bottomTrailing)
+
             ZStack {
                 GlassPerspectiveShape(inset: 0.035)
                     .fill(Color(red: 0.08, green: 0.37, blue: 0.60))
@@ -1516,77 +1777,88 @@ private struct StepStartDeck: View {
                         GlassPerspectiveShape(inset: 0.045)
                             .stroke(character.skyColor, lineWidth: isPad ? 7 : 5)
                     }
-                    .shadow(color: Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.34),
-                            radius: 12, y: 9)
-
-                Path { path in
-                    path.move(to: CGPoint(x: proxy.size.width * 0.16, y: proxy.size.height * 0.22))
-                    path.addLine(to: CGPoint(x: proxy.size.width * 0.48, y: proxy.size.height * 0.09))
-                }
-                .stroke(.white.opacity(0.74),
-                        style: StrokeStyle(lineWidth: isPad ? 4 : 2.5, lineCap: .round))
-
-                // A flush oval iris replaces the permanent outlined square.
-                // Closed, only a hairline seam remains in the glass. Opening
-                // reveals the shaft while both surface halves slide sideways.
-                ZStack {
-                    Capsule()
-                        .fill(LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.25),
-                                                      Color(red: 0.02, green: 0.30, blue: 0.46)],
-                                             startPoint: .top,
-                                             endPoint: .bottom))
-                        .opacity(hatchOpen ? 1 : 0)
-
-                    ForEach([-1.0, 1.0], id: \.self) { side in
-                        Rectangle()
-                            .fill(deckGradient)
-                            .frame(width: hatchWidth * 0.52, height: hatchHeight)
-                            .offset(x: CGFloat(side) * hatchWidth
-                                        * (hatchOpen ? 0.68 : 0.25))
-                            // When closed, the real deck surface is visible;
-                            // no subtly mismatched oval patch remains behind.
-                            .opacity(hatchOpen ? 1 : 0)
-                    }
-
-                    Rectangle()
-                        .fill(Color(red: 0.04, green: 0.27, blue: 0.43).opacity(0.24))
-                        .frame(width: isPad ? 2 : 1.5,
-                               height: hatchHeight * 0.56)
-                        .opacity(hatchOpen ? 0 : 1)
-                }
-                .frame(width: hatchWidth, height: hatchHeight)
-                .clipShape(Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(Color(red: 0.04, green: 0.22, blue: 0.39),
-                                lineWidth: isPad ? 8 : 5)
-                        .opacity(hatchOpen ? 1 : 0)
-                }
-                .shadow(color: .black.opacity(hatchOpen ? 0.48 : 0), radius: 8, y: 4)
-                .animation(.timingCurve(0.30, 0.02, 0.20, 1,
-                                        duration: 0.30),
-                           value: hatchOpen)
+            }
+            .mask {
+                StepDeckOpeningMask(isOpen: true,
+                                    width: hatchWidth,
+                                    height: hatchHeight,
+                                    offsetY: hatchOffset)
+            }
+            // The cut begins just below the lift's centre. This is the piece
+            // nearest the viewer and is intentionally drawn last.
+            .mask(alignment: .bottom) {
+                Rectangle().frame(height: proxy.size.height * 0.44)
             }
         }
+    }
+}
+
+private struct StepDeckOpeningMask: View {
+    let isOpen: Bool
+    let width: CGFloat
+    let height: CGFloat
+    let offsetY: CGFloat
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.white)
+            if isOpen {
+                GlassPerspectiveShape(inset: 0.11)
+                    .fill(.black)
+                    .frame(width: width, height: height)
+                    .offset(y: offsetY)
+                    .blendMode(.destinationOut)
+            }
+        }
+        .compositingGroup()
     }
 }
 
 private struct StepLiftPlatform: View {
     let character: AnimalCharacter
     let isPad: Bool
+    let elevation: CGFloat
 
     var body: some View {
-        Capsule()
-            .fill(LinearGradient(colors: [Color.white.opacity(0.94),
-                                          Color(red: 0.30, green: 0.80, blue: 0.98),
-                                          character.color.opacity(0.62)],
-                                 startPoint: .topLeading,
-                                 endPoint: .bottomTrailing))
-            .overlay {
-                Capsule()
-                    .stroke(.white.opacity(0.82), lineWidth: isPad ? 5 : 3)
+        GeometryReader { proxy in
+            let edgeProgress = min(1, max(0, elevation / (isPad ? 38 : 26)))
+            let seamWidth = isPad ? 2.5 : 1.5
+            ZStack {
+                // Only the floor slab and its shallow front edge are drawn:
+                // there are deliberately no side walls or roof around the
+                // character, so it reads as an open platform lift.
+                GlassPerspectiveShape(inset: 0.11)
+                    .fill(Color(red: 0.06, green: 0.34, blue: 0.52))
+                    .offset(y: proxy.size.height * (0.03 + 0.13 * edgeProgress))
+                    .opacity(edgeProgress)
+
+                GlassPerspectiveShape(inset: 0.11)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.95),
+                                                  Color(red: 0.35, green: 0.83, blue: 1.0),
+                                                  character.color.opacity(0.62)],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .overlay {
+                        GlassPerspectiveShape(inset: 0.11)
+                            .stroke(Color(red: 0.04, green: 0.22, blue: 0.39)
+                                        .opacity(0.40 + edgeProgress * 0.30),
+                                    lineWidth: seamWidth + edgeProgress * seamWidth)
+                    }
+
+                Path { path in
+                    path.move(to: CGPoint(x: proxy.size.width * 0.18,
+                                          y: proxy.size.height * 0.22))
+                    path.addLine(to: CGPoint(x: proxy.size.width * 0.48,
+                                            y: proxy.size.height * 0.08))
+                }
+                .stroke(.white.opacity(0.70),
+                        style: StrokeStyle(lineWidth: isPad ? 3 : 2,
+                                           lineCap: .round))
             }
-            .shadow(color: .black.opacity(0.34), radius: 6, y: 4)
+            .shadow(color: .black.opacity(0.08 + edgeProgress * 0.26),
+                    radius: 1 + edgeProgress * 5,
+                    y: edgeProgress * 4)
+        }
     }
 }
 
@@ -1595,19 +1867,21 @@ private struct StepHatchFrontLip: View {
     let isPad: Bool
 
     var body: some View {
-        ZStack {
-            Capsule()
-                .stroke(Color(red: 0.04, green: 0.22, blue: 0.39),
-                        lineWidth: isPad ? 8 : 5)
-            Capsule()
-                .fill(LinearGradient(colors: [character.skyColor,
-                                              Color(red: 0.08, green: 0.37, blue: 0.60)],
-                                     startPoint: .top,
-                                     endPoint: .bottom))
-                .scaleEffect(x: 0.94, y: 0.36, anchor: .bottom)
-        }
-        .mask(alignment: .bottom) {
-            Rectangle().frame(height: isPad ? 38 : 27)
+        GeometryReader { proxy in
+            ZStack {
+                GlassPerspectiveShape(inset: 0.11)
+                    .stroke(Color(red: 0.04, green: 0.22, blue: 0.39),
+                            lineWidth: isPad ? 8 : 5)
+                GlassPerspectiveShape(inset: 0.11)
+                    .fill(LinearGradient(colors: [character.skyColor,
+                                                  Color(red: 0.08, green: 0.37, blue: 0.60)],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+                    .scaleEffect(x: 0.94, y: 0.30, anchor: .bottom)
+            }
+            .mask(alignment: .bottom) {
+                Rectangle().frame(height: proxy.size.height * 0.36)
+            }
         }
         .shadow(color: .black.opacity(0.34), radius: 5, y: 3)
     }
@@ -2012,11 +2286,13 @@ private struct GlassStepTile: View, Animatable {
                             }
                         }
                         .background {
-                            if usesDetailedEffects {
-                                BridgeLaneTileShape(lane: lane, perspective: perspective)
-                                    .fill(Color(red: 0.10, green: 0.45, blue: 0.68))
-                                    .offset(y: proxy.size.height * 0.14)
-                            }
+                            // The blue lower edge is part of the stone itself,
+                            // not a close-range embellishment. Keep it on the
+                            // lightweight future rows too, so every visible
+                            // stone already has the same physical thickness.
+                            BridgeLaneTileShape(lane: lane, perspective: perspective)
+                                .fill(Color(red: 0.10, green: 0.45, blue: 0.68))
+                                .offset(y: proxy.size.height * 0.14)
                         }
                         .shadow(color: usesDetailedEffects
                                     ? Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.32)

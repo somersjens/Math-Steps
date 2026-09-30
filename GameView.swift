@@ -113,9 +113,6 @@ struct GameView: View {
     /// After the card, the fish gets the stage to itself for one short looping
     /// entrance. The first round only opens when that animation is finished.
     @State private var playsFishEntrance = false
-    /// Measured from the real HUD layout so the flying currency glyph can land
-    /// pixel-for-pixel over its stationary twin on every device and score width.
-    @State private var scoreIconCenter: CGPoint?
     /// A completed board gets one last moment in the machine before its result
     /// card appears. Time expiry has its own short finale.
     @State private var playsLevelCompletion = false
@@ -316,7 +313,6 @@ struct GameView: View {
                                routeRounds: model.routeRounds,
                                brokenRouteOptionIDs: model.brokenRouteOptionIDs,
                                currentStep: model.currentStep,
-                               highestStep: model.highestStep,
                                maximumSteps: model.maximumRounds,
                                character: character,
                                isPad: isPad,
@@ -327,7 +323,6 @@ struct GameView: View {
                                playsTimeOutFinale: playsTimeOutFinale,
                                reduceMotion: reduceMotion,
                                tutorialPlan: tutorial.clawPlan,
-                               topReserve: topInset + (isPad ? 8 : 6),
                                bottomReserve: screenInsets.bottom,
                                onSelect: model.select,
                                onRewardArrived: model.scoreBubbleArrived,
@@ -340,11 +335,8 @@ struct GameView: View {
                                })
 
             hud
-                .padding(.leading, max(isPad ? 8 : 4, screenInsets.leading + 2))
-                .padding(.trailing, max(isPad ? 8 : 4, screenInsets.trailing + 2))
-                // Centre the mounted pause and timer controls on the prompt
-                // plaque's horizontal axis, regardless of their outer sizes.
-                .padding(.top, topInset - (isPad ? 13 : 10))
+                .padding(.horizontal, max(isPad ? 18 : 7, screenInsets.leading + 5))
+                .padding(.top, topInset + (isPad ? 8 : 6))
                 .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
                 .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
                 .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
@@ -356,7 +348,7 @@ struct GameView: View {
             if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
                 TutorialMessageCard(text: message, theme: character, isPad: isPad)
                     .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
-                    .padding(.top, topInset + (isPad ? 104 : 72))
+                    .padding(.top, topInset + hudHeight + (isPad ? 22 : 16))
                     // Scales up in place rather than sliding down: a card that
                     // travelled would cross the HUD on its way in.
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
@@ -365,9 +357,6 @@ struct GameView: View {
             }
         }
         .ignoresSafeArea()
-        .onPreferenceChange(ScoreIconCenterPreferenceKey.self) { center in
-            scoreIconCenter = center
-        }
     }
 
     private func finishLevelCompletion() {
@@ -395,99 +384,83 @@ struct GameView: View {
     // MARK: - HUD
 
     private var hud: some View {
-        HStack(alignment: .top, spacing: isPad ? 12 : 8) {
+        HStack(spacing: hudSpacing) {
             pauseButton
-                .padding(.top, isPad ? 10 : 6)
-            Spacer(minLength: 0)
-            ClawTimerBadge(clock: model.clock,
-                           isPad: isPad,
-                           size: hudTimerSize,
-                           palette: clawPalette,
-                           highlightsTutorial: tutorial.clawPlan.highlightsTimer)
+
+            GameplayPromptBadge(prompt: model.round?.question.prompt ?? "",
+                                isPad: isPad)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: hudMetricSpacing) {
+                GameplayTimerBadge(clock: model.clock,
+                                   isPad: isPad,
+                                   width: hudMetricWidth,
+                                   height: hudMetricHeight,
+                                   palette: clawPalette,
+                                   highlightsTutorial: tutorial.clawPlan.highlightsTimer)
+
+                ClawScoreBadge(current: model.currentStep,
+                               maximum: model.maximumRounds,
+                               isPad: isPad,
+                               width: hudMetricWidth,
+                               height: hudMetricHeight)
+            }
         }
+        .frame(maxWidth: isPad ? 900 : .infinity)
+        .frame(height: hudHeight)
+        .frame(maxWidth: .infinity)
     }
 
     private var pauseButton: some View {
-        let palette = clawPalette
-        return Button {
+        Button {
             AppAudio.shared.playMenuTap()
             model.pause()
             showsPauseCard = true
             showsIntro = true
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
-                    .fill(palette.woodDeep)
-                    .frame(width: hudPauseMountSize * 0.32,
-                           height: hudPauseMountSize * 0.38)
-                    .offset(y: hudPauseMountSize * 0.43)
-
-                RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
+                Circle()
                     .fill(
-                        LinearGradient(colors: [palette.woodLight,
-                                                palette.wood,
-                                                palette.woodDeep],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        LinearGradient(colors: [Color(red: 1.00, green: 0.84, blue: 0.25),
+                                                Color(red: 1.00, green: 0.57, blue: 0.04)],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing)
                     )
-                    .frame(width: hudPauseMountSize, height: hudPauseMountSize)
                     .overlay {
-                        RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
-                            .strokeBorder(palette.woodDeep,
-                                          lineWidth: isPad ? 3 : 2)
+                        Circle()
+                            .stroke(Color(red: 1.00, green: 0.73, blue: 0.12),
+                                    lineWidth: isPad ? 6 : 4)
                     }
-                    .overlay {
-                        CabinetMountFasteners(size: isPad ? 5 : 4,
-                                              inset: isPad ? 8 : 6,
-                                              palette: palette)
-                    }
-                    .overlay {
-                        CabinetHUDWoodGrain(color: palette.woodDeep)
-                            .clipShape(RoundedRectangle(cornerRadius: isPad ? 18 : 14,
-                                                       style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        Capsule()
+                            .fill(.white.opacity(0.48))
+                            .frame(width: hudHeight * 0.38,
+                                   height: isPad ? 7 : 5)
+                            .rotationEffect(.degrees(-24))
+                            .offset(x: hudHeight * 0.17, y: hudHeight * 0.13)
                     }
 
-                RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                    .fill(
-                        LinearGradient(colors: [palette.character.deepColor,
-                                                Color.black.opacity(0.86)],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
-                    .frame(width: hudPauseSize, height: hudPauseSize)
-                    .overlay {
-                        Image(systemName: "pause.fill")
-                            .font(.system(size: pauseGlyphSize, weight: .bold))
-                            .foregroundStyle(palette.character.skyColor)
-                            .shadow(color: palette.character.color.opacity(0.55), radius: 3)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                            .stroke(
-                                LinearGradient(colors: [palette.woodLight,
-                                                        palette.woodDeep],
-                                               startPoint: .top, endPoint: .bottom),
-                                lineWidth: 2
-                            )
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: isPad ? 10 : 7, weight: .bold))
-                            .foregroundStyle(palette.character.color.opacity(0.72))
-                            .padding(isPad ? 5 : 4)
-                    }
+                Image(systemName: "pause.fill")
+                    .font(.system(size: pauseGlyphSize, weight: .black))
+                    .foregroundStyle(.white)
+                    .shadow(color: Color.orange.opacity(0.45), radius: 2, y: 2)
             }
-            .frame(width: hudPauseMountSize, height: hudPauseMountSize)
-            .shadow(color: palette.character.color.opacity(0.30), radius: isPad ? 12 : 9)
-            .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
+            .frame(width: hudHeight, height: hudHeight)
+            .shadow(color: Color(red: 0.02, green: 0.25, blue: 0.58).opacity(0.24),
+                    radius: isPad ? 9 : 6,
+                    y: isPad ? 6 : 4)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
         .accessibilityLabel(Text("game.pause"))
     }
 
-    private var hudTimerSize: CGFloat { isPad ? 86 : 58 }
-    private var hudPauseSize: CGFloat { isPad ? 64 : 46 }
-    private var hudPauseMountSize: CGFloat { isPad ? 82 : 58 }
-    private var pauseGlyphSize: CGFloat { isPad ? 25 : 18 }
+    private var hudHeight: CGFloat { isPad ? 86 : 62 }
+    private var hudSpacing: CGFloat { isPad ? 12 : 7 }
+    private var hudMetricSpacing: CGFloat { isPad ? 6 : 4 }
+    private var hudMetricWidth: CGFloat { isPad ? 148 : 98 }
+    private var hudMetricHeight: CGFloat { (hudHeight - hudMetricSpacing) / 2 }
+    private var pauseGlyphSize: CGFloat { isPad ? 31 : 23 }
 
     /// The reef only ticks while the level is actually being played: never
     /// behind the start card or the result card, and never while the app is in
@@ -498,6 +471,188 @@ struct GameView: View {
     }
 }
 
+/// The question plaque shares the HUD's layout row, keeping its top and bottom
+/// edges locked to the pause button and the combined time/score column.
+private struct GameplayPromptBadge: View {
+    let prompt: String
+    let isPad: Bool
+
+    var body: some View {
+        Text(verbatim: prompt)
+            .font(.system(size: isPad ? 43 : 28, weight: .black, design: .rounded))
+            .foregroundStyle(Color(red: 0.06, green: 0.20, blue: 0.43))
+            .minimumScaleFactor(0.42)
+            .lineLimit(1)
+            .padding(.horizontal, isPad ? 28 : 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                    .fill(LinearGradient(colors: [Color.white,
+                                                  Color(red: 1.0, green: 0.97, blue: 0.88)],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                            .stroke(LinearGradient(colors: [Color(red: 1.0, green: 0.83, blue: 0.28),
+                                                            Color(red: 0.98, green: 0.55, blue: 0.07)],
+                                                   startPoint: .top,
+                                                   endPoint: .bottom),
+                                    lineWidth: isPad ? 7 : 5)
+                    }
+                    .overlay(alignment: .top) {
+                        Capsule()
+                            .fill(.white.opacity(0.75))
+                            .frame(height: isPad ? 4 : 3)
+                            .padding(.horizontal, isPad ? 27 : 20)
+                            .padding(.top, isPad ? 8 : 6)
+                    }
+            }
+            .shadow(color: Color(red: 0.02, green: 0.25, blue: 0.58).opacity(0.30),
+                    radius: 9,
+                    y: 6)
+            .id(prompt)
+            .transition(.scale(scale: 0.94).combined(with: .opacity))
+            .accessibilityIdentifier("claw-prompt")
+    }
+}
+
+private struct GameplayTimerBadge: View {
+    @ObservedObject var clock: GameClock
+    let isPad: Bool
+    let width: CGFloat
+    let height: CGFloat
+    let palette: ClawPalette
+    let highlightsTutorial: Bool
+
+    private var remaining: Double { clock.remaining }
+    private var seconds: Int { max(0, Int(remaining.rounded(.up))) }
+    private var timeText: String {
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    var body: some View {
+        HStack(spacing: isPad ? 9 : 6) {
+            Image(systemName: "clock.fill")
+                .font(.system(size: isPad ? 19 : 13, weight: .black))
+                .foregroundStyle(Color(red: 0.02, green: 0.58, blue: 0.90))
+                .frame(width: height * 0.70, height: height * 0.70)
+                .background(.white, in: Circle())
+                .overlay(Circle().stroke(Color.cyan.opacity(0.72),
+                                         lineWidth: isPad ? 2.5 : 2))
+
+            Text(verbatim: timeText)
+                .font(.system(size: isPad ? 22 : 15, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.72)
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .frame(width: width, height: height)
+        .background {
+            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.02, green: 0.37, blue: 0.72),
+                                              Color(red: 0.02, green: 0.18, blue: 0.43)],
+                                     startPoint: .topLeading,
+                                     endPoint: .bottomTrailing))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                .stroke(Color(red: 0.05, green: 0.52, blue: 0.87),
+                        lineWidth: isPad ? 2.5 : 2)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
+        .overlay {
+            if highlightsTutorial {
+                GameplayTimerFocus(color: palette.character.color,
+                                   isPad: isPad)
+            }
+        }
+        .accessibilityIdentifier("timer")
+        .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
+    }
+}
+
+private struct ClawScoreBadge: View {
+    let current: Int
+    let maximum: Int
+    let isPad: Bool
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        HStack(spacing: isPad ? 9 : 6) {
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: isPad ? 23 : 16, weight: .black))
+                .foregroundStyle(Color(red: 1.0, green: 0.77, blue: 0.10))
+                .shadow(color: Color.orange.opacity(0.42), radius: 2, y: 1)
+
+            Text(verbatim: "\(LN(current)) / \(LN(maximum))")
+                .font(.system(size: isPad ? 21 : 14, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.68)
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .frame(width: width, height: height)
+        .background {
+            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.02, green: 0.37, blue: 0.72),
+                                              Color(red: 0.02, green: 0.18, blue: 0.43)],
+                                     startPoint: .topLeading,
+                                     endPoint: .bottomTrailing))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                .stroke(Color(red: 0.05, green: 0.52, blue: 0.87),
+                        lineWidth: isPad ? 2.5 : 2)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(current) / \(maximum)"))
+    }
+}
+
+/// Five-second focus beat around the countdown before it starts. This uses a
+/// self-contained pulse because the HUD is deliberately isolated from the claw
+/// engine's high-frequency frame clock.
+private struct GameplayTimerFocus: View {
+    let color: Color
+    let isPad: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulses = false
+
+    var body: some View {
+        ZStack {
+            Capsule()
+                .stroke(.white.opacity(0.96), lineWidth: isPad ? 5 : 3.5)
+                .scaleEffect(x: pulses ? 1.09 : 1.03,
+                             y: pulses ? 1.20 : 1.08)
+                .opacity(pulses ? 0.56 : 0.94)
+                .shadow(color: color.opacity(0.96), radius: isPad ? 16 : 11)
+
+            Capsule()
+                .stroke(color,
+                        style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                           lineCap: .round,
+                                           dash: [isPad ? 13 : 10, isPad ? 9 : 7]))
+                .scaleEffect(x: pulses ? 1.15 : 1.08,
+                             y: pulses ? 1.30 : 1.16)
+                .shadow(color: .white.opacity(0.76), radius: 4)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true)) {
+                pulses = true
+            }
+        }
+    }
+}
+
+/// The original mounted timer remains available to the promo trailer. The
+/// production stepping game uses the compact horizontal timer above instead.
 struct ClawTimerBadge: View {
     @ObservedObject var clock: GameClock
     let isPad: Bool
@@ -592,9 +747,6 @@ struct ClawTimerBadge: View {
     }
 }
 
-/// Five-second focus beat around the countdown before it starts. This uses a
-/// self-contained pulse because the HUD is deliberately isolated from the claw
-/// engine's high-frequency frame clock.
 private struct TutorialTimerFocus: View {
     let color: Color
     let deepColor: Color

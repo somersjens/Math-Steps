@@ -2,15 +2,12 @@
 //  ClawMachineBackground.swift
 //  Math Steps
 //
-//  A quiet, character-coloured menu surface. The pegboard and the exact walnut
-//  artwork from the claw game tie the menus to gameplay without adding a
-//  second cabinet or claw around the controls in front.
+//  A quiet, character-coloured sky shared by the main, welcome and Premium
+//  menus. Soft clouds keep the large surfaces airy; barely visible arithmetic
+//  cards connect it to play without competing with the controls in front.
 //
 
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct ClawMachineBackground: View, Equatable {
     let character: AnimalCharacter
@@ -18,38 +15,37 @@ struct ClawMachineBackground: View, Equatable {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let palette = ClawMachinePalette(character: character)
+            let palette = MenuSkyPalette(character: character)
 
             ZStack {
                 LinearGradient(
                     stops: [
                         .init(color: palette.top, location: 0),
-                        .init(color: palette.middle, location: 0.48),
+                        .init(color: palette.middle, location: 0.52),
                         .init(color: palette.bottom, location: 1)
                     ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
 
                 RadialGradient(
-                    colors: [.white.opacity(0.48), .white.opacity(0)],
-                    center: UnitPoint(x: 0.34, y: 0.14),
+                    colors: [.white.opacity(0.66), .white.opacity(0)],
+                    center: UnitPoint(x: 0.28, y: 0.08),
                     startRadius: 0,
-                    endRadius: max(size.width, size.height) * 0.68
+                    endRadius: max(size.width, size.height) * 0.72
                 )
 
-                ClawPegboard(color: character.deepColor)
-                    .opacity(0.23)
+                MenuCloudLayer(accent: character.color)
 
-                ClawCabinetGlass(color: character.color)
+                MenuMathMotifs(color: character.deepColor)
 
-                InGameNutBed()
-                    .frame(height: min(136, max(108, size.height * 0.14)))
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-
-                // Keeps long translated copy and white cards readable while
-                // leaving the pegboard and walnut silhouettes recognisable.
-                Color.white.opacity(0.10)
+                // A light veil keeps long translated copy and translucent
+                // cards readable across every character palette.
+                LinearGradient(
+                    colors: [.white.opacity(0.04), .white.opacity(0.12)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             }
             .frame(width: size.width, height: size.height)
         }
@@ -59,12 +55,13 @@ struct ClawMachineBackground: View, Equatable {
     }
 }
 
-private struct ClawMachinePalette {
+private struct MenuSkyPalette {
     let character: AnimalCharacter
 
-    var top: Color { mix(character.skyRGB, (1.00, 0.97, 0.89), 0.34) }
-    var middle: Color { mix(character.tintRGB, (0.96, 0.88, 0.70), 0.18) }
-    var bottom: Color { mix(character.tintRGB, (0.77, 0.61, 0.39), 0.18) }
+    var top: Color { mix(character.skyRGB, (1.00, 1.00, 1.00), 0.42) }
+    var middle: Color { mix(character.tintRGB, (1.00, 0.99, 0.96), 0.48) }
+    var bottom: Color { mix(character.primaryRGB, (1.00, 0.98, 0.92), 0.72) }
+
     private func mix(_ base: (Double, Double, Double),
                      _ target: (Double, Double, Double),
                      _ amount: Double) -> Color {
@@ -75,110 +72,150 @@ private struct ClawMachinePalette {
     }
 }
 
-/// A workshop pegboard is immediately mechanical, but the tiny low-contrast
-/// holes stay quieter behind copy than a literal machine interior photograph.
-private struct ClawPegboard: View {
-    let color: Color
+/// Large, edge-weighted puffs leave the centre calm for menu content. They are
+/// intentionally static: the menus already contain lively character motion.
+private struct MenuCloudLayer: View {
+    let accent: Color
 
-    var body: some View {
-        Canvas { context, size in
-            let spacing: CGFloat = 34
-            let radius: CGFloat = 1.65
-            var y: CGFloat = 82
-            var row = 0
-
-            while y < size.height - 76 {
-                var x = CGFloat(row % 2) * spacing * 0.5 + 17
-                while x < size.width {
-                    let hole = CGRect(x: x - radius, y: y - radius,
-                                      width: radius * 2, height: radius * 2)
-                    context.fill(Path(ellipseIn: hole), with: .color(color.opacity(0.44)))
-                    x += spacing
-                }
-                y += spacing
-                row += 1
-            }
-        }
+    private struct Cloud {
+        let centre: CGPoint
+        let scale: CGFloat
+        let opacity: Double
     }
-}
 
-/// Very soft reflections imply the glass front of a prize machine without the
-/// blue shafts and rising bubbles that made the old backdrop read as water.
-private struct ClawCabinetGlass: View {
-    let color: Color
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                RoundedRectangle(cornerRadius: 80, style: .continuous)
-                    .fill(.white.opacity(0.11))
-                    .frame(width: proxy.size.width * 0.10,
-                           height: proxy.size.height * 0.76)
-                    .rotationEffect(.degrees(18))
-                    .offset(x: -proxy.size.width * 0.29,
-                            y: -proxy.size.height * 0.05)
-
-                RoundedRectangle(cornerRadius: 80, style: .continuous)
-                    .fill(color.opacity(0.07))
-                    .frame(width: proxy.size.width * 0.055,
-                           height: proxy.size.height * 0.54)
-                    .rotationEffect(.degrees(18))
-                    .offset(x: -proxy.size.width * 0.14,
-                            y: -proxy.size.height * 0.12)
-            }
-        }
-        .clipped()
-    }
-}
-
-private struct InGameNutBed: View {
-    private let prizes: [(CGFloat, CGFloat, CGFloat, Double)] = [
-        // A stable shuffle of both rows makes neighbouring shells cross over
-        // each other irregularly without changing their z-order on redraw.
-        (0.45, 0.46, 1.05, 18),  (0.74, 0.85, 1.09, 17),
-        (-0.01, 0.50, 0.96, -16), (0.23, 0.82, 1.02, -17),
-        (0.92, 0.51, 0.95, -18), (0.57, 0.81, 1.04, -10),
-        (0.30, 0.51, 0.94, -8),  (0.91, 0.82, 1.03, -8),
-        (0.76, 0.47, 1.02, 9),   (0.06, 0.84, 1.08, 13),
-        (1.05, 0.48, 1.00, 10),  (0.40, 0.85, 1.10, 8),
-        (0.14, 0.47, 1.03, 11),  (0.61, 0.50, 0.96, -13)
+    private let clouds: [Cloud] = [
+        .init(centre: .init(x: 0.01, y: 0.15), scale: 0.84, opacity: 0.34),
+        .init(centre: .init(x: 0.94, y: 0.10), scale: 0.62, opacity: 0.27),
+        .init(centre: .init(x: 0.91, y: 0.48), scale: 0.78, opacity: 0.18),
+        .init(centre: .init(x: 0.05, y: 0.72), scale: 0.70, opacity: 0.17),
+        .init(centre: .init(x: 0.62, y: 0.96), scale: 1.02, opacity: 0.15)
     ]
 
     var body: some View {
-        GeometryReader { proxy in
-            let base = min(106, max(72, proxy.size.width * 0.19))
+        Canvas { context, size in
+            let baseWidth = min(max(size.width * 0.42, 150), 390)
 
-            // Fourteen separate resizable Image views made every menu scroll
-            // reconcile and composite fourteen copies of a 1536×1024 texture.
-            // One asynchronous Canvas produces the same authored pile in a
-            // single display-list node and shares the already decoded image.
-            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
-                for prize in prizes {
-                    let visualWidth = base * prize.2
-                    let imageWidth = visualWidth / ClawConfig.nutContentWidthFraction
-                    let imageHeight = imageWidth / ClawConfig.nutCanvasAspect
-                    let center = CGPoint(x: size.width * prize.0,
-                                         y: size.height * (0.30 + prize.1))
-                    let rect = CGRect(x: center.x - imageWidth / 2,
-                                      y: center.y - imageHeight / 2,
-                                      width: imageWidth,
-                                      height: imageHeight)
-                    var nutContext = context
-                    nutContext.translateBy(x: center.x, y: center.y)
-                    nutContext.rotate(by: .degrees(prize.3))
-                    nutContext.translateBy(x: -center.x, y: -center.y)
-                    nutContext.draw(nutImage, in: rect)
-                }
+            for cloud in clouds {
+                let width = baseWidth * cloud.scale
+                let height = width * 0.30
+                let centre = CGPoint(x: size.width * cloud.centre.x,
+                                     y: size.height * cloud.centre.y)
+                let rect = CGRect(x: centre.x - width / 2,
+                                  y: centre.y - height / 2,
+                                  width: width,
+                                  height: height)
+                var path = Path()
+                path.addEllipse(in: CGRect(x: rect.minX,
+                                           y: rect.minY + height * 0.42,
+                                           width: width,
+                                           height: height * 0.58))
+                path.addEllipse(in: CGRect(x: rect.minX + width * 0.16,
+                                           y: rect.minY + height * 0.18,
+                                           width: width * 0.36,
+                                           height: height * 0.72))
+                path.addEllipse(in: CGRect(x: rect.minX + width * 0.39,
+                                           y: rect.minY,
+                                           width: width * 0.38,
+                                           height: height * 0.88))
+                path.addEllipse(in: CGRect(x: rect.minX + width * 0.67,
+                                           y: rect.minY + height * 0.30,
+                                           width: width * 0.24,
+                                           height: height * 0.60))
+
+                var cloudContext = context
+                cloudContext.addFilter(.shadow(color: accent.opacity(0.055),
+                                                radius: max(4, width * 0.025),
+                                                x: 0,
+                                                y: max(2, height * 0.06)))
+                cloudContext.fill(path, with: .color(.white.opacity(cloud.opacity)))
+            }
+        }
+    }
+}
+
+/// Faint tilted cards and arithmetic marks echo the level grid and sums. Their
+/// low contrast makes them register as texture, never as tappable controls.
+private struct MenuMathMotifs: View {
+    let color: Color
+
+    private struct Motif {
+        enum Kind { case plus, minus, multiply, equal, card }
+        let centre: CGPoint
+        let scale: CGFloat
+        let rotation: Double
+        let kind: Kind
+    }
+
+    private let motifs: [Motif] = [
+        .init(centre: .init(x: 0.12, y: 0.36), scale: 0.78, rotation: -8, kind: .plus),
+        .init(centre: .init(x: 0.88, y: 0.28), scale: 0.64, rotation: 7, kind: .multiply),
+        .init(centre: .init(x: 0.08, y: 0.57), scale: 0.66, rotation: -5, kind: .card),
+        .init(centre: .init(x: 0.91, y: 0.67), scale: 0.72, rotation: 6, kind: .equal),
+        .init(centre: .init(x: 0.25, y: 0.88), scale: 0.54, rotation: -9, kind: .minus),
+        .init(centre: .init(x: 0.78, y: 0.89), scale: 0.58, rotation: 8, kind: .plus)
+    ]
+
+    var body: some View {
+        Canvas { context, size in
+            let unit = min(max(min(size.width, size.height) * 0.052, 22), 48)
+
+            for motif in motifs {
+                let centre = CGPoint(x: size.width * motif.centre.x,
+                                     y: size.height * motif.centre.y)
+                let side = unit * motif.scale
+                var motifContext = context
+                motifContext.translateBy(x: centre.x, y: centre.y)
+                motifContext.rotate(by: .degrees(motif.rotation))
+                motifContext.translateBy(x: -centre.x, y: -centre.y)
+
+                let style = StrokeStyle(lineWidth: max(1.2, side * 0.085),
+                                        lineCap: .round,
+                                        lineJoin: .round)
+                let shading = GraphicsContext.Shading.color(color.opacity(0.055))
+                motifContext.stroke(path(for: motif.kind, centre: centre, side: side),
+                                    with: shading,
+                                    style: style)
             }
         }
     }
 
-    private var nutImage: Image {
-#if canImport(UIKit)
-        Image(uiImage: ClawArtworkCache.nut)
-#else
-        Image(ClawConfig.nutImageName)
-#endif
+    private func path(for kind: Motif.Kind, centre: CGPoint, side: CGFloat) -> Path {
+        let half = side / 2
+        let short = side * 0.34
+        var path = Path()
+
+        switch kind {
+        case .plus:
+            path.move(to: CGPoint(x: centre.x - half, y: centre.y))
+            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y))
+            path.move(to: CGPoint(x: centre.x, y: centre.y - half))
+            path.addLine(to: CGPoint(x: centre.x, y: centre.y + half))
+        case .minus:
+            path.move(to: CGPoint(x: centre.x - half, y: centre.y))
+            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y))
+        case .multiply:
+            path.move(to: CGPoint(x: centre.x - short, y: centre.y - short))
+            path.addLine(to: CGPoint(x: centre.x + short, y: centre.y + short))
+            path.move(to: CGPoint(x: centre.x + short, y: centre.y - short))
+            path.addLine(to: CGPoint(x: centre.x - short, y: centre.y + short))
+        case .equal:
+            path.move(to: CGPoint(x: centre.x - half, y: centre.y - side * 0.18))
+            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y - side * 0.18))
+            path.move(to: CGPoint(x: centre.x - half, y: centre.y + side * 0.18))
+            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y + side * 0.18))
+        case .card:
+            let rect = CGRect(x: centre.x - side * 0.62,
+                              y: centre.y - side * 0.78,
+                              width: side * 1.24,
+                              height: side * 1.56)
+            path.addRoundedRect(in: rect, cornerSize: CGSize(width: side * 0.22,
+                                                             height: side * 0.22))
+            path.move(to: CGPoint(x: centre.x - short, y: centre.y))
+            path.addLine(to: CGPoint(x: centre.x + short, y: centre.y))
+            path.move(to: CGPoint(x: centre.x, y: centre.y - short))
+            path.addLine(to: CGPoint(x: centre.x, y: centre.y + short))
+        }
+        return path
     }
 }
 

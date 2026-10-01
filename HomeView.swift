@@ -55,13 +55,10 @@ struct HomeView: View {
     @ObservedObject private var progressSync = ProgressSync.shared
     @ObservedObject private var language = LanguageManager.shared
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var selection: LevelSelection?
     @State private var showPremium = false
     @State private var premiumInitialCharacterID: String?
-    @State private var celebratedUnlockID: String?
-    @State private var pendingUnlockIDs: [String] = []
     @State private var showGoalPicker = false
     @State private var showNameEditor = false
     @State private var nameDraft = ""
@@ -95,10 +92,6 @@ struct HomeView: View {
     /// The last step of the walkthrough: on the way back from that first game
     /// the menu points out where the score is kept.
     @State private var showsTutorialHint = false
-    /// Pulls the hanging menu character up while a level cover is presenting,
-    /// covering the existing load time rather than adding to it. 0 is hanging,
-    /// 1 is fully reeled off the top of the screen.
-    @State private var menuCharacterHoist: CGFloat = 0
     /// Avoids walking every board of every level on each menu state change
     /// (opening Premium, pausing the backdrop, rotating).
     @State private var topicTotalCache = TopicTotalCache()
@@ -292,30 +285,7 @@ struct HomeView: View {
 
         }
         .coordinateSpace(name: "home")
-        // Same left-origin placement as the nut flights above. The character
-        // slot itself turns over with Arabic, but `position` on this overlay
-        // would otherwise hang the portrait on the physical left of a
-        // right-hand slot.
-        .overlayPreferenceValue(HomeCharacterAnchorKey.self) { anchor in
-            GeometryReader { proxy in
-                if let anchor {
-                    HomeHangingCharacter(
-                        character: character,
-                        frame: proxy[anchor],
-                        canvasSize: proxy.size,
-                        hoist: menuCharacterHoist,
-                        isPad: isPad,
-                        dimsForTutorial: showsTutorialHint
-                    )
-                }
-            }
-            .environment(\.layoutDirection, .leftToRight)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-        }
-        // The rope is an overlay so it can hang outside the scroll content.
-        // Place the returning tutorial message after that overlay, ensuring the
-        // rope always passes behind the white card instead of across its text.
+        // The returning tutorial message sits above the menu content.
         .overlay(alignment: .top) {
             if showsTutorialHint {
                 TutorialMessageCard(text: L("tutorial.step.10"),
@@ -337,13 +307,9 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showPremium, onDismiss: {
             premiumInitialCharacterID = nil
-            celebratedUnlockID = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                presentNextUnlockIfAny()
-            }
         }) {
             PremiumView(initialCharacterID: premiumInitialCharacterID,
-                        celebratedUnlockCharacterID: celebratedUnlockID)
+                        celebratedUnlockCharacterID: nil)
                 .premiumSheetPresentation()
         }
         .sheet(isPresented: $showNameEditor) {
@@ -379,9 +345,6 @@ struct HomeView: View {
                     handleSessionDismissed()
                 }
             }
-        }
-        .onChange(of: selection != nil) { _, isOpen in
-            retractMenuCharacter(isOpen)
         }
         .onChange(of: totalCards) {
             // A returning session banks its cards before any of the celebration
@@ -500,9 +463,25 @@ struct HomeView: View {
 
     private var characterButton: some View {
         let box: CGFloat = isPad ? 118 : 68
-        return Color.clear
+        return ZStack {
+            Circle()
+                .fill(LinearGradient(colors: [character.skyColor,
+                                              character.color],
+                                     startPoint: .topLeading,
+                                     endPoint: .bottomTrailing))
+                .overlay {
+                    Circle().stroke(.white.opacity(0.82),
+                                    lineWidth: isPad ? 3 : 2)
+                }
+                .shadow(color: character.deepColor.opacity(0.20),
+                        radius: isPad ? 8 : 5,
+                        y: isPad ? 5 : 3)
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: box * 0.42, weight: .bold))
+                .foregroundStyle(.white)
+                .accessibilityHidden(true)
+        }
             .frame(width: box, height: box)
-            .anchorPreference(key: HomeCharacterAnchorKey.self, value: .bounds) { $0 }
             .contentShape(Rectangle())
         // One exclusive recognizer decides between the two actions. A
         // successful hold can therefore never fall through into the tap that
@@ -948,7 +927,6 @@ struct HomeView: View {
             // the session is live, so anything captured there would be
             // overwritten with post-session values.
             rememberBeforePlaying(level)
-            retractMenuCharacter(true)
             selection = LevelSelection(level: level)
         }
         .modifier(HomeTutorialDim(isActive: dimsForTutorialHint(level),
@@ -1037,21 +1015,6 @@ struct HomeView: View {
 
     // MARK: - Actions
 
-    /// Reels the hanging menu character up or down. The lift is meant to play
-    /// over the existing cover presentation, not to delay it.
-    private func retractMenuCharacter(_ retracted: Bool) {
-        let target: CGFloat = retracted ? 1 : 0
-        guard menuCharacterHoist != target else { return }
-        let animation: Animation? = reduceMotion
-            ? nil
-            : (retracted
-               ? .easeIn(duration: 0.28)
-               : .spring(response: 0.55, dampingFraction: 0.86))
-        withAnimation(animation) {
-            menuCharacterHoist = target
-        }
-    }
-
     /// Records what the level and the running total were worth before play, so
     /// the return can count up from there. The session banks its cards while
     /// the cover is still up and `@AppStorage` mirrors that write immediately,
@@ -1079,7 +1042,6 @@ struct HomeView: View {
         tutorialPending = false
         rememberBeforePlaying(level)
         guard !isCoveredByFirstSession else { return }
-        retractMenuCharacter(true)
         withAnimation(.easeInOut(duration: 0.3)) {
             selection = LevelSelection(level: level, startsTutorialArmed: true)
         }
@@ -1212,16 +1174,9 @@ struct HomeView: View {
                 self.unlockPreviewTrigger &+= 1
                 self.synchronizeUnlockPrompt(animated: true)
             }
-            pendingUnlockIDs = CharacterUnlockStore.unannouncedUnlocks(at: totalCards).map(\.id)
-            // Let the whole celebration play before a character sheet takes over.
-            DispatchQueue.main.asyncAfter(deadline: .now() + lifetime + 0.25) {
-                presentNextUnlockIfAny()
-            }
         } else {
             holdsPreSessionValues = false
             synchronizeUnlockPrompt(animated: unlockPrompt != nil)
-            pendingUnlockIDs = CharacterUnlockStore.unannouncedUnlocks(at: totalCards).map(\.id)
-            presentNextUnlockIfAny()
         }
     }
 
@@ -1272,9 +1227,9 @@ struct HomeView: View {
 
     // MARK: Self-test
 
-    /// Drives the complete return sequence twice from the menu, then hands over
-    /// to a real character unlock. Everything runs through the same code a
-    /// finished session uses, so what it shows is what a player would see.
+    /// Drives the complete score-return sequence twice from the menu.
+    /// Everything runs through the same code a finished session uses, so what
+    /// it shows is what a player would see.
     ///
     /// This writes real progress: both levels are pushed to their maximum and
     /// the total is topped up to the next milestone.
@@ -1283,7 +1238,7 @@ struct HomeView: View {
         guard levels.count >= 2 else { return }
 
         let full = board(for: levels[0]).maximum
-        // One celebration from start to the moment the unlock sheet may appear.
+        // One complete score celebration.
         let step = Self.cardSettleDelay + Self.maximumRevealPause + Self.flightDuration
             + Self.headerCountDuration + 0.6
 
@@ -1319,15 +1274,6 @@ struct HomeView: View {
         // Straight to the celebration: the self-test is about that sequence,
         // not about whatever the walkthrough may still owe the player.
         runReturnCelebration()
-    }
-
-    private func presentNextUnlockIfAny() {
-        guard !showPremium, !pendingUnlockIDs.isEmpty else { return }
-        let next = pendingUnlockIDs.removeFirst()
-        CharacterUnlockStore.markAnnounced(next)
-        celebratedUnlockID = next
-        premiumInitialCharacterID = next
-        showPremium = true
     }
 
     private var promoDisplayedTotal: Int {
@@ -1490,48 +1436,6 @@ struct HomeView: View {
         }
     }
 #endif
-}
-
-private struct HomeCharacterAnchorKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
-    }
-}
-
-/// The hanging menu character and its rope. `hoist` is animatable so the
-/// reel-up still interpolates when the overlay is driven from a preference.
-private struct HomeHangingCharacter: View, Animatable {
-    let character: AnimalCharacter
-    let frame: CGRect
-    let canvasSize: CGSize
-    var hoist: CGFloat
-    let isPad: Bool
-    var dimsForTutorial = false
-
-    var animatableData: CGFloat {
-        get { hoist }
-        set { hoist = newValue }
-    }
-
-    var body: some View {
-        let lift = hoist * (frame.maxY + 28)
-        let ropeWidth: CGFloat = isPad ? 2 : 1.5
-        ZStack(alignment: .topLeading) {
-            MenuHangingRope(
-                // Run one point behind the hook so no background
-                // seam can open at their connection.
-                endPoint: CGPoint(x: frame.midX,
-                                  y: frame.minY + 1 - lift),
-                lineWidth: ropeWidth
-            )
-            HangingCharacterArtwork(character: character)
-                .frame(width: frame.width, height: frame.height)
-                .position(x: frame.midX, y: frame.midY - lift)
-        }
-        .frame(width: canvasSize.width, height: canvasSize.height)
-        .modifier(HomeTutorialDim(isActive: dimsForTutorial))
-    }
 }
 
 /// Softens the menu around the one card the closing tutorial step is pointing

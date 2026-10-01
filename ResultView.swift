@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ResultView: View {
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let result: SessionResult
     /// Which scoreboard was played: it sets what a full score is worth here.
     let board: LevelBoard
@@ -23,7 +24,9 @@ struct ResultView: View {
     @State private var shineSweep = false
     @State private var showsConfetti = false
 
-    private var isPad: Bool { AppLayout.isPad }
+    private var isPad: Bool {
+        AppLayout.isPad && horizontalSizeClass != .compact
+    }
     private var scale: CGFloat { isPad ? 1.2 : 1 }
     private var textScale: CGFloat { isPad ? 1.296 : 1 }
 
@@ -181,7 +184,14 @@ struct ResultView: View {
     /// The result hangs the selected character the same way the menu does:
     /// no tile behind it, so it reads as the animal rather than a badge.
     private var resultPortrait: some View {
-        HangingCharacterArtwork(character: character)
+        Group {
+            if CharacterArtworkAvailability.hasLayeredArtwork(for: character) {
+                HangingCharacterArtwork(character: character)
+            } else {
+                CharacterPlaceholderArtwork(character: character)
+                    .padding(18 * scale)
+            }
+        }
             .frame(width: 118 * scale, height: 92 * scale)
     }
 

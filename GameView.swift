@@ -93,6 +93,7 @@ struct GameView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var premium = PremiumStore.shared
     @ObservedObject private var language = LanguageManager.shared
     @StateObject private var model: GameViewModel
@@ -140,7 +141,11 @@ struct GameView: View {
 
     private var character: AnimalCharacter { CharacterCatalog.current(isPremium: premium.isPremium) }
     private var clawPalette: ClawPalette { ClawPalette(character: character) }
-    private var isPad: Bool { AppLayout.isPad }
+    /// A narrow iPad window should use the compact gameplay metrics instead of
+    /// squeezing the full-width iPad HUD and 285pt character into the scene.
+    private var isPad: Bool {
+        AppLayout.isPad && horizontalSizeClass != .compact
+    }
 
     var body: some View {
         ZStack {
@@ -530,22 +535,30 @@ private struct GameplayTimerBadge: View {
         String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
+    private var iconWidth: CGFloat { isPad ? 23 : 16 }
+    private var horizontalPadding: CGFloat { isPad ? 14 : 10 }
+
     var body: some View {
         HStack(spacing: isPad ? 9 : 6) {
             Image(systemName: "clock.fill")
-                .font(.system(size: isPad ? 19 : 13, weight: .black))
-                .foregroundStyle(Color(red: 0.02, green: 0.58, blue: 0.90))
-                .frame(width: height * 0.70, height: height * 0.70)
-                .background(.white, in: Circle())
-                .overlay(Circle().stroke(Color.cyan.opacity(0.72),
-                                         lineWidth: isPad ? 2.5 : 2))
+                .font(.system(size: iconWidth, weight: .black))
+                .foregroundStyle(.white)
+                .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.38),
+                        radius: 1,
+                        y: 1)
+                .frame(width: iconWidth)
 
             Text(verbatim: timeText)
                 .font(.system(size: isPad ? 22 : 15, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .minimumScaleFactor(0.72)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.42),
+                        radius: 1,
+                        y: 1)
         }
+        .padding(.horizontal, horizontalPadding)
         .foregroundStyle(.white)
         .frame(width: width, height: height)
         .background(GameplayMetricBackground(height: height, isPad: isPad))
@@ -568,19 +581,30 @@ private struct ClawScoreBadge: View {
     let width: CGFloat
     let height: CGFloat
 
+    private var iconWidth: CGFloat { isPad ? 23 : 16 }
+    private var horizontalPadding: CGFloat { isPad ? 14 : 10 }
+
     var body: some View {
         HStack(spacing: isPad ? 9 : 6) {
             Image(systemName: "pawprint.fill")
-                .font(.system(size: isPad ? 23 : 16, weight: .black))
-                .foregroundStyle(Color(red: 1.0, green: 0.77, blue: 0.10))
-                .shadow(color: Color.orange.opacity(0.42), radius: 2, y: 1)
+                .font(.system(size: iconWidth, weight: .black))
+                .foregroundStyle(.white)
+                .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.38),
+                        radius: 1,
+                        y: 1)
+                .frame(width: iconWidth)
 
             Text(verbatim: "\(LN(score)) / \(LN(maximum))")
                 .font(.system(size: isPad ? 21 : 14, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .minimumScaleFactor(0.68)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.42),
+                        radius: 1,
+                        y: 1)
         }
+        .padding(.horizontal, horizontalPadding)
         .foregroundStyle(.white)
         .frame(width: width, height: height)
         .background(GameplayMetricBackground(height: height, isPad: isPad))
@@ -590,37 +614,31 @@ private struct ClawScoreBadge: View {
     }
 }
 
-/// A warm outer shell ties the compact counters to the orange pause button
-/// and question plaque. Navy remains inside for maximum contrast at this size.
+/// The compact counters use the same warm surface as the pause button. White
+/// values and navy icons keep both pieces readable without a second dark fill.
 private struct GameplayMetricBackground: View {
     let height: CGFloat
     let isPad: Bool
 
-    private var rim: CGFloat { isPad ? 4 : 3 }
-
     var body: some View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
             .fill(
-                LinearGradient(colors: [Color(red: 1.00, green: 0.86, blue: 0.30),
+                LinearGradient(colors: [Color(red: 1.00, green: 0.84, blue: 0.25),
                                         Color(red: 1.00, green: 0.57, blue: 0.05)],
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: max(0, height / 2 - rim),
-                                 style: .continuous)
-                    .fill(
-                        LinearGradient(colors: [Color(red: 0.04, green: 0.34, blue: 0.63),
-                                                Color(red: 0.02, green: 0.16, blue: 0.36)],
-                                       startPoint: .top,
-                                       endPoint: .bottom)
-                    )
-                    .padding(rim)
-            }
-            .overlay {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                    .stroke(Color(red: 0.98, green: 0.48, blue: 0.03),
-                            lineWidth: isPad ? 1.5 : 1)
+                    .stroke(Color(red: 1.00, green: 0.72, blue: 0.10),
+                            lineWidth: isPad ? 2.5 : 2)
+            }
+            .overlay(alignment: .top) {
+                Capsule()
+                    .fill(.white.opacity(0.34))
+                    .frame(height: isPad ? 2.5 : 2)
+                    .padding(.horizontal, isPad ? 18 : 12)
+                    .padding(.top, isPad ? 4 : 3)
             }
     }
 }

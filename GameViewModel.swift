@@ -81,6 +81,11 @@ final class GameViewModel: ObservableObject {
     /// Invalidates pending timed work when a round is superseded (restart, or
     /// leaving the screen), so a late callback can never touch a newer round.
     private var generation = 0
+    /// Identifies one accepted Math Steps answer within a session generation.
+    /// A correct landing can finish that answer before its fallback timer. If
+    /// the player has already started the next jump when that timer fires, the
+    /// identifier prevents the old timer from completing the new answer.
+    private var stepResolutionToken = 0
     private var hasRecordedResult = false
     private var isPaused = false
     /// The walkthrough teaches every control before spending any of the
@@ -358,6 +363,8 @@ final class GameViewModel: ObservableObject {
         PlaytimeTracker.shared.registerInteraction()
 
         let token = generation
+        stepResolutionToken &+= 1
+        let resolutionToken = stepResolutionToken
         let delay: Double
         switch outcome {
         case .correct(let cardsEarned):
@@ -378,7 +385,8 @@ final class GameViewModel: ObservableObject {
         }
 
         schedule(after: delay, token: token) { [weak self] in
-            self?.finishStepResolution(token: token)
+            self?.finishStepResolution(token: token,
+                                       resolutionToken: resolutionToken)
         }
         return true
     }
@@ -390,14 +398,20 @@ final class GameViewModel: ObservableObject {
     func stepLandingCompleted() {
         guard case .correct = engine.lastOutcome else { return }
         let token = generation
+        let resolutionToken = stepResolutionToken
         schedule(after: 0, token: token) { [weak self] in
-            self?.finishStepResolution(token: token)
+            self?.finishStepResolution(token: token,
+                                       resolutionToken: resolutionToken)
         }
     }
 
-    private func finishStepResolution(token: Int) {
+    private func finishStepResolution(token: Int, resolutionToken: Int) {
         guard generation == token,
+              stepResolutionToken == resolutionToken,
               engine.finishResolving() else { return }
+        // Invalidate every remaining callback for the answer that just closed
+        // before the next round can become interactive.
+        stepResolutionToken &+= 1
         if pendingTimeExpiry {
             pendingTimeExpiry = false
             engine.expireTime()

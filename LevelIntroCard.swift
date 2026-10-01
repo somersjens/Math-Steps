@@ -115,8 +115,11 @@ struct LevelIntroCard: View {
     @AppStorage(GameSettings.musicEnabledKey) private var musicEnabled = true
     @AppStorage(GameSettings.gameSoundsEnabledKey) private var gameSoundsEnabled = true
     @ObservedObject private var language = LanguageManager.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private var isPad: Bool { AppLayout.isPad }
+    private var isPad: Bool {
+        AppLayout.isPad && horizontalSizeClass != .compact
+    }
     private var scale: CGFloat { isPad ? 1.2 : 1 }
     /// Text on the larger iPad card gets one additional readability step;
     /// buttons intentionally keep their established touch proportions.
@@ -246,13 +249,20 @@ struct LevelIntroCard: View {
     // MARK: - Pieces
 
     private var characterPortrait: some View {
-        CroppedCharacterPortrait(
-            character: theme,
-            elephantScale: 1.188,
-            elephantYOffset: -0.126,
-            otherCharacterScale: max(0, 1 - 10 / portraitSize),
-            usesHooklessElephant: true
-        )
+        Group {
+            if CharacterArtworkAvailability.hasLayeredArtwork(for: theme) {
+                CroppedCharacterPortrait(
+                    character: theme,
+                    elephantScale: 1.188,
+                    elephantYOffset: -0.126,
+                    otherCharacterScale: max(0, 1 - 10 / portraitSize),
+                    usesHooklessElephant: true
+                )
+            } else {
+                CharacterPlaceholderArtwork(character: theme)
+                    .padding(portraitSize * 0.19)
+            }
+        }
             .frame(width: portraitSize, height: portraitSize)
             .background(theme.skyColor, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))

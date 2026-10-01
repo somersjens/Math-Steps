@@ -373,6 +373,36 @@ struct CroppedCharacterPortrait: View {
     }
 }
 
+/// A deterministic fallback for installations where the optional layered
+/// character catalog is not bundled. Gameplay cards must never reserve a
+/// conspicuous empty portrait slot just because one artwork set is absent.
+enum CharacterArtworkAvailability {
+    static func hasLayeredArtwork(for character: AnimalCharacter) -> Bool {
+#if canImport(UIKit)
+        UIImage(named: character.imageName) != nil
+            && character.hanging.layerNames.allSatisfy { UIImage(named: $0) != nil }
+#else
+        true
+#endif
+    }
+}
+
+struct CharacterPlaceholderArtwork: View {
+    let character: AnimalCharacter
+
+    var body: some View {
+        Image(systemName: "pawprint.fill")
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(
+                LinearGradient(colors: [character.color, character.deepColor],
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing)
+            )
+            .accessibilityHidden(true)
+    }
+}
+
 private func hangingLayer(_ name: String) -> some View {
 #if canImport(UIKit)
     Image(uiImage: CharacterArtworkCache.front(named: name))

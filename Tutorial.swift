@@ -221,9 +221,16 @@ struct TutorialMessageCard: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: isPad ? 14 : 10) {
-            theme.artwork
-                .resizable()
-                .scaledToFit()
+            Group {
+                if CharacterArtworkAvailability.hasLayeredArtwork(for: theme) {
+                    theme.artwork
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    CharacterPlaceholderArtwork(character: theme)
+                        .padding(isPad ? 12 : 9)
+                }
+            }
                 .padding(isPad ? 4 : 3)
                 .frame(width: portraitSize, height: portraitSize)
                 .background(theme.skyColor,
@@ -262,7 +269,11 @@ struct TutorialNoticeCard: View {
     let theme: AnimalCharacter
     let onDismiss: () -> Void
 
-    private var isPad: Bool { AppLayout.isPad }
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isPad: Bool {
+        AppLayout.isPad && horizontalSizeClass != .compact
+    }
     private var scale: CGFloat { isPad ? 1.2 : 1 }
 
     var body: some View {

@@ -2,26 +2,37 @@
 //  ClawMachineBackground.swift
 //  Math Steps
 //
-//  A quiet, character-coloured sky shared by the main, welcome and Premium
-//  menus. Soft clouds keep the large surfaces airy; barely visible arithmetic
-//  cards connect it to play without competing with the controls in front.
+//  A character-coloured sky shared by the main, welcome and Premium menus.
+//  Layered clouds and soft wind trails make the theme feel playful without
+//  putting busy decoration behind the controls.
 //
 
 import SwiftUI
 
+enum MenuBackgroundStyle: Equatable {
+    case standard
+    case welcome
+
+    var cloudIntensity: Double { self == .welcome ? 1.24 : 1 }
+    var cloudScale: CGFloat { self == .welcome ? 1.10 : 1 }
+    var colourStrength: Double { self == .welcome ? 1.12 : 1 }
+}
+
 struct ClawMachineBackground: View, Equatable {
     let character: AnimalCharacter
+    var style: MenuBackgroundStyle = .standard
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let palette = MenuSkyPalette(character: character)
+            let palette = MenuSkyPalette(character: character,
+                                         colourStrength: style.colourStrength)
 
             ZStack {
                 LinearGradient(
                     stops: [
                         .init(color: palette.top, location: 0),
-                        .init(color: palette.middle, location: 0.52),
+                        .init(color: palette.middle, location: 0.48),
                         .init(color: palette.bottom, location: 1)
                     ],
                     startPoint: .top,
@@ -29,20 +40,27 @@ struct ClawMachineBackground: View, Equatable {
                 )
 
                 RadialGradient(
-                    colors: [.white.opacity(0.66), .white.opacity(0)],
-                    center: UnitPoint(x: 0.28, y: 0.08),
+                    colors: [.white.opacity(style == .welcome ? 0.52 : 0.44),
+                             .white.opacity(0)],
+                    center: UnitPoint(x: 0.24, y: 0.04),
                     startRadius: 0,
-                    endRadius: max(size.width, size.height) * 0.72
+                    endRadius: max(size.width, size.height) * 0.68
                 )
 
-                MenuCloudLayer(accent: character.color)
+                MenuBreezeLayer(color: character.deepColor,
+                                intensity: style.cloudIntensity)
 
-                MenuMathMotifs(color: character.deepColor)
+                MenuCloudLayer(
+                    accent: character.color,
+                    tint: character.tintColor,
+                    intensity: style.cloudIntensity,
+                    scaleBoost: style.cloudScale
+                )
 
                 // A light veil keeps long translated copy and translucent
                 // cards readable across every character palette.
                 LinearGradient(
-                    colors: [.white.opacity(0.04), .white.opacity(0.12)],
+                    colors: [.white.opacity(0.02), .white.opacity(0.07)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -57,10 +75,15 @@ struct ClawMachineBackground: View, Equatable {
 
 private struct MenuSkyPalette {
     let character: AnimalCharacter
+    let colourStrength: Double
 
-    var top: Color { mix(character.skyRGB, (1.00, 1.00, 1.00), 0.42) }
-    var middle: Color { mix(character.tintRGB, (1.00, 0.99, 0.96), 0.48) }
-    var bottom: Color { mix(character.primaryRGB, (1.00, 0.98, 0.92), 0.72) }
+    var top: Color { mix(character.skyRGB, (1.00, 1.00, 1.00), whiten(0.28)) }
+    var middle: Color { mix(character.tintRGB, (1.00, 0.99, 0.96), whiten(0.32)) }
+    var bottom: Color { mix(character.primaryRGB, (1.00, 0.98, 0.92), whiten(0.58)) }
+
+    private func whiten(_ amount: Double) -> Double {
+        1 - ((1 - amount) * colourStrength)
+    }
 
     private func mix(_ base: (Double, Double, Double),
                      _ target: (Double, Double, Double),
@@ -72,10 +95,14 @@ private struct MenuSkyPalette {
     }
 }
 
-/// Large, edge-weighted puffs leave the centre calm for menu content. They are
-/// intentionally static: the menus already contain lively character motion.
+/// Large, edge-weighted puffs leave the centre calm for menu content. A soft
+/// theme-coloured underside gives each palette its own sky instead of laying
+/// generic white stickers over a gradient.
 private struct MenuCloudLayer: View {
     let accent: Color
+    let tint: Color
+    let intensity: Double
+    let scaleBoost: CGFloat
 
     private struct Cloud {
         let centre: CGPoint
@@ -84,138 +111,140 @@ private struct MenuCloudLayer: View {
     }
 
     private let clouds: [Cloud] = [
-        .init(centre: .init(x: 0.01, y: 0.15), scale: 0.84, opacity: 0.34),
-        .init(centre: .init(x: 0.94, y: 0.10), scale: 0.62, opacity: 0.27),
-        .init(centre: .init(x: 0.91, y: 0.48), scale: 0.78, opacity: 0.18),
-        .init(centre: .init(x: 0.05, y: 0.72), scale: 0.70, opacity: 0.17),
-        .init(centre: .init(x: 0.62, y: 0.96), scale: 1.02, opacity: 0.15)
+        .init(centre: .init(x: 0.00, y: 0.13), scale: 0.96, opacity: 0.64),
+        .init(centre: .init(x: 0.96, y: 0.20), scale: 0.70, opacity: 0.51),
+        .init(centre: .init(x: 0.02, y: 0.43), scale: 0.58, opacity: 0.39),
+        .init(centre: .init(x: 0.98, y: 0.56), scale: 0.92, opacity: 0.43),
+        .init(centre: .init(x: 0.04, y: 0.77), scale: 0.82, opacity: 0.38),
+        .init(centre: .init(x: 0.61, y: 0.96), scale: 1.22, opacity: 0.50)
     ]
 
     var body: some View {
         Canvas { context, size in
-            let baseWidth = min(max(size.width * 0.42, 150), 390)
+            let baseWidth = min(max(size.width * 0.48, 178), 440)
 
             for cloud in clouds {
-                let width = baseWidth * cloud.scale
-                let height = width * 0.30
+                let width = baseWidth * cloud.scale * scaleBoost
+                let height = width * 0.32
                 let centre = CGPoint(x: size.width * cloud.centre.x,
                                      y: size.height * cloud.centre.y)
                 let rect = CGRect(x: centre.x - width / 2,
                                   y: centre.y - height / 2,
                                   width: width,
                                   height: height)
-                var path = Path()
-                path.addEllipse(in: CGRect(x: rect.minX,
-                                           y: rect.minY + height * 0.42,
-                                           width: width,
-                                           height: height * 0.58))
-                path.addEllipse(in: CGRect(x: rect.minX + width * 0.16,
-                                           y: rect.minY + height * 0.18,
-                                           width: width * 0.36,
-                                           height: height * 0.72))
-                path.addEllipse(in: CGRect(x: rect.minX + width * 0.39,
-                                           y: rect.minY,
-                                           width: width * 0.38,
-                                           height: height * 0.88))
-                path.addEllipse(in: CGRect(x: rect.minX + width * 0.67,
-                                           y: rect.minY + height * 0.30,
-                                           width: width * 0.24,
-                                           height: height * 0.60))
+                let path = cloudPath(in: rect)
 
                 var cloudContext = context
-                cloudContext.addFilter(.shadow(color: accent.opacity(0.055),
-                                                radius: max(4, width * 0.025),
+                cloudContext.addFilter(.shadow(color: accent.opacity(0.11 * intensity),
+                                                radius: max(5, width * 0.035),
                                                 x: 0,
-                                                y: max(2, height * 0.06)))
-                cloudContext.fill(path, with: .color(.white.opacity(cloud.opacity)))
+                                                y: max(3, height * 0.10)))
+                let opacity = min(0.92, cloud.opacity * intensity)
+                cloudContext.fill(
+                    path,
+                    with: .linearGradient(
+                        Gradient(stops: [
+                            .init(color: .white.opacity(opacity), location: 0),
+                            .init(color: .white.opacity(opacity * 0.82), location: 0.56),
+                            .init(color: tint.opacity(opacity * 0.42), location: 1)
+                        ]),
+                        startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                        endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+                    )
+                )
+                cloudContext.stroke(path,
+                                    with: .color(accent.opacity(0.07 * intensity)),
+                                    lineWidth: max(0.8, width * 0.005))
             }
         }
     }
+
+    /// One continuous silhouette keeps the cloud soft and cohesive. Stroking
+    /// separate circles would reveal their overlaps and make it look bubbly.
+    private func cloudPath(in rect: CGRect) -> Path {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + rect.width * x,
+                    y: rect.minY + rect.height * y)
+        }
+
+        var path = Path()
+        path.move(to: point(0.03, 0.78))
+        path.addCurve(to: point(0.22, 0.55),
+                      control1: point(0.06, 0.63),
+                      control2: point(0.13, 0.54))
+        path.addCurve(to: point(0.38, 0.48),
+                      control1: point(0.27, 0.49),
+                      control2: point(0.32, 0.46))
+        path.addCurve(to: point(0.55, 0.12),
+                      control1: point(0.40, 0.25),
+                      control2: point(0.47, 0.12))
+        path.addCurve(to: point(0.73, 0.43),
+                      control1: point(0.66, 0.12),
+                      control2: point(0.72, 0.27))
+        path.addCurve(to: point(0.91, 0.55),
+                      control1: point(0.79, 0.43),
+                      control2: point(0.86, 0.46))
+        path.addCurve(to: point(0.98, 0.78),
+                      control1: point(0.97, 0.59),
+                      control2: point(1.00, 0.69))
+        path.addCurve(to: point(0.03, 0.78),
+                      control1: point(0.79, 1.02),
+                      control2: point(0.22, 1.02))
+        path.closeSubpath()
+        return path
+    }
 }
 
-/// Faint tilted cards and arithmetic marks echo the level grid and sums. Their
-/// low contrast makes them register as texture, never as tappable controls.
-private struct MenuMathMotifs: View {
+/// Long, low-contrast curves continue the cloud language through the open
+/// spaces. Unlike icons or cards they never read as controls or game pieces.
+private struct MenuBreezeLayer: View {
     let color: Color
+    let intensity: Double
 
-    private struct Motif {
-        enum Kind { case plus, minus, multiply, equal, card }
-        let centre: CGPoint
-        let scale: CGFloat
-        let rotation: Double
-        let kind: Kind
+    private struct Breeze {
+        let start: CGPoint
+        let control1: CGPoint
+        let control2: CGPoint
+        let end: CGPoint
+        let width: CGFloat
+        let opacity: Double
     }
 
-    private let motifs: [Motif] = [
-        .init(centre: .init(x: 0.12, y: 0.36), scale: 0.78, rotation: -8, kind: .plus),
-        .init(centre: .init(x: 0.88, y: 0.28), scale: 0.64, rotation: 7, kind: .multiply),
-        .init(centre: .init(x: 0.08, y: 0.57), scale: 0.66, rotation: -5, kind: .card),
-        .init(centre: .init(x: 0.91, y: 0.67), scale: 0.72, rotation: 6, kind: .equal),
-        .init(centre: .init(x: 0.25, y: 0.88), scale: 0.54, rotation: -9, kind: .minus),
-        .init(centre: .init(x: 0.78, y: 0.89), scale: 0.58, rotation: 8, kind: .plus)
+    private let breezes: [Breeze] = [
+        .init(start: .init(x: -0.06, y: 0.27), control1: .init(x: 0.06, y: 0.23), control2: .init(x: 0.18, y: 0.31), end: .init(x: 0.31, y: 0.27), width: 0.0042, opacity: 0.050),
+        .init(start: .init(x: 0.70, y: 0.36), control1: .init(x: 0.82, y: 0.31), control2: .init(x: 0.93, y: 0.40), end: .init(x: 1.06, y: 0.35), width: 0.0034, opacity: 0.041),
+        .init(start: .init(x: -0.05, y: 0.64), control1: .init(x: 0.06, y: 0.59), control2: .init(x: 0.19, y: 0.68), end: .init(x: 0.33, y: 0.63), width: 0.0032, opacity: 0.038),
+        .init(start: .init(x: 0.64, y: 0.82), control1: .init(x: 0.76, y: 0.77), control2: .init(x: 0.90, y: 0.86), end: .init(x: 1.05, y: 0.81), width: 0.0040, opacity: 0.047)
     ]
 
     var body: some View {
         Canvas { context, size in
-            let unit = min(max(min(size.width, size.height) * 0.052, 22), 48)
-
-            for motif in motifs {
-                let centre = CGPoint(x: size.width * motif.centre.x,
-                                     y: size.height * motif.centre.y)
-                let side = unit * motif.scale
-                var motifContext = context
-                motifContext.translateBy(x: centre.x, y: centre.y)
-                motifContext.rotate(by: .degrees(motif.rotation))
-                motifContext.translateBy(x: -centre.x, y: -centre.y)
-
-                let style = StrokeStyle(lineWidth: max(1.2, side * 0.085),
-                                        lineCap: .round,
-                                        lineJoin: .round)
-                let shading = GraphicsContext.Shading.color(color.opacity(0.055))
-                motifContext.stroke(path(for: motif.kind, centre: centre, side: side),
-                                    with: shading,
-                                    style: style)
+            for breeze in breezes {
+                var path = Path()
+                path.move(to: point(breeze.start, in: size))
+                path.addCurve(to: point(breeze.end, in: size),
+                              control1: point(breeze.control1, in: size),
+                              control2: point(breeze.control2, in: size))
+                context.stroke(
+                    path,
+                    with: .linearGradient(
+                        Gradient(stops: [
+                            .init(color: color.opacity(0), location: 0),
+                            .init(color: color.opacity(breeze.opacity * intensity), location: 0.45),
+                            .init(color: color.opacity(0), location: 1)
+                        ]),
+                        startPoint: point(breeze.start, in: size),
+                        endPoint: point(breeze.end, in: size)
+                    ),
+                    style: StrokeStyle(lineWidth: max(1.2, size.width * breeze.width),
+                                       lineCap: .round)
+                )
             }
         }
     }
 
-    private func path(for kind: Motif.Kind, centre: CGPoint, side: CGFloat) -> Path {
-        let half = side / 2
-        let short = side * 0.34
-        var path = Path()
-
-        switch kind {
-        case .plus:
-            path.move(to: CGPoint(x: centre.x - half, y: centre.y))
-            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y))
-            path.move(to: CGPoint(x: centre.x, y: centre.y - half))
-            path.addLine(to: CGPoint(x: centre.x, y: centre.y + half))
-        case .minus:
-            path.move(to: CGPoint(x: centre.x - half, y: centre.y))
-            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y))
-        case .multiply:
-            path.move(to: CGPoint(x: centre.x - short, y: centre.y - short))
-            path.addLine(to: CGPoint(x: centre.x + short, y: centre.y + short))
-            path.move(to: CGPoint(x: centre.x + short, y: centre.y - short))
-            path.addLine(to: CGPoint(x: centre.x - short, y: centre.y + short))
-        case .equal:
-            path.move(to: CGPoint(x: centre.x - half, y: centre.y - side * 0.18))
-            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y - side * 0.18))
-            path.move(to: CGPoint(x: centre.x - half, y: centre.y + side * 0.18))
-            path.addLine(to: CGPoint(x: centre.x + half, y: centre.y + side * 0.18))
-        case .card:
-            let rect = CGRect(x: centre.x - side * 0.62,
-                              y: centre.y - side * 0.78,
-                              width: side * 1.24,
-                              height: side * 1.56)
-            path.addRoundedRect(in: rect, cornerSize: CGSize(width: side * 0.22,
-                                                             height: side * 0.22))
-            path.move(to: CGPoint(x: centre.x - short, y: centre.y))
-            path.addLine(to: CGPoint(x: centre.x + short, y: centre.y))
-            path.move(to: CGPoint(x: centre.x, y: centre.y - short))
-            path.addLine(to: CGPoint(x: centre.x, y: centre.y + short))
-        }
-        return path
+    private func point(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
     }
 }
 

@@ -589,7 +589,13 @@ final class GameViewModel: ObservableObject {
         roundNumber = engine.roundNumber
         if pendingScoreRewards.isEmpty { cards = engine.cards }
         currentStep = engine.currentStep
-        highestStep = engine.highestStep
+        // The HUD score represents the highest stone the character has
+        // actually reached. A correct tap moves the engine ahead immediately,
+        // but the visible score waits until the landing finishes and the
+        // resolve state closes. Falling back never lowers this value.
+        if engine.state != .resolving {
+            highestStep = engine.highestStep
+        }
         selectedOptionID = engine.selectedOptionID
         brokenOptionIDs = engine.brokenOptionIDs
         routeRounds = engine.routeRounds

@@ -399,7 +399,7 @@ struct GameView: View {
                                    palette: clawPalette,
                                    highlightsTutorial: tutorial.clawPlan.highlightsTimer)
 
-                ClawScoreBadge(current: model.currentStep,
+                ClawScoreBadge(score: model.highestStep,
                                maximum: model.maximumRounds,
                                isPad: isPad,
                                width: hudMetricWidth,
@@ -548,18 +548,7 @@ private struct GameplayTimerBadge: View {
         }
         .foregroundStyle(.white)
         .frame(width: width, height: height)
-        .background {
-            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.02, green: 0.37, blue: 0.72),
-                                              Color(red: 0.02, green: 0.18, blue: 0.43)],
-                                     startPoint: .topLeading,
-                                     endPoint: .bottomTrailing))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                .stroke(Color(red: 0.05, green: 0.52, blue: 0.87),
-                        lineWidth: isPad ? 2.5 : 2)
-        }
+        .background(GameplayMetricBackground(height: height, isPad: isPad))
         .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
         .overlay {
             if highlightsTutorial {
@@ -573,7 +562,7 @@ private struct GameplayTimerBadge: View {
 }
 
 private struct ClawScoreBadge: View {
-    let current: Int
+    let score: Int
     let maximum: Int
     let isPad: Bool
     let width: CGFloat
@@ -586,7 +575,7 @@ private struct ClawScoreBadge: View {
                 .foregroundStyle(Color(red: 1.0, green: 0.77, blue: 0.10))
                 .shadow(color: Color.orange.opacity(0.42), radius: 2, y: 1)
 
-            Text(verbatim: "\(LN(current)) / \(LN(maximum))")
+            Text(verbatim: "\(LN(score)) / \(LN(maximum))")
                 .font(.system(size: isPad ? 21 : 14, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .minimumScaleFactor(0.68)
@@ -594,21 +583,45 @@ private struct ClawScoreBadge: View {
         }
         .foregroundStyle(.white)
         .frame(width: width, height: height)
-        .background {
-            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.02, green: 0.37, blue: 0.72),
-                                              Color(red: 0.02, green: 0.18, blue: 0.43)],
-                                     startPoint: .topLeading,
-                                     endPoint: .bottomTrailing))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                .stroke(Color(red: 0.05, green: 0.52, blue: 0.87),
-                        lineWidth: isPad ? 2.5 : 2)
-        }
+        .background(GameplayMetricBackground(height: height, isPad: isPad))
         .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(current) / \(maximum)"))
+        .accessibilityLabel(Text(verbatim: "\(score) / \(maximum)"))
+    }
+}
+
+/// A warm outer shell ties the compact counters to the orange pause button
+/// and question plaque. Navy remains inside for maximum contrast at this size.
+private struct GameplayMetricBackground: View {
+    let height: CGFloat
+    let isPad: Bool
+
+    private var rim: CGFloat { isPad ? 4 : 3 }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(
+                LinearGradient(colors: [Color(red: 1.00, green: 0.86, blue: 0.30),
+                                        Color(red: 1.00, green: 0.57, blue: 0.05)],
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: max(0, height / 2 - rim),
+                                 style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.04, green: 0.34, blue: 0.63),
+                                                Color(red: 0.02, green: 0.16, blue: 0.36)],
+                                       startPoint: .top,
+                                       endPoint: .bottom)
+                    )
+                    .padding(rim)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                    .stroke(Color(red: 0.98, green: 0.48, blue: 0.03),
+                            lineWidth: isPad ? 1.5 : 1)
+            }
     }
 }
 

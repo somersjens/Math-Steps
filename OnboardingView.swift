@@ -150,7 +150,7 @@ struct OnboardingView: View {
     }
 
     private var onboardingBackground: some View {
-        ClawMachineBackground(character: welcomeCharacter)
+        ClawMachineBackground(character: welcomeCharacter, style: .welcome)
     }
 
     private var nameStep: some View {

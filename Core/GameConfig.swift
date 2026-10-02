@@ -70,6 +70,11 @@ nonisolated public enum GameConfig {
          wrongFeedbackDuration + roundTransitionDuration)
     }
 
+    /// Safety-net delay for a Math Steps landing that never reports completion
+    /// back to the model. It intentionally outlasts the jump plus the visible
+    /// nut flight, so the score cannot change before that nut reaches the paw.
+    public static let stepCorrectResolutionFallbackDuration = 1.68
+
     // MARK: Levels
 
     /// Levels available without Premium.

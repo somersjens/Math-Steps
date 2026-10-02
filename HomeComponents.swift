@@ -401,9 +401,9 @@ struct LevelCardView: View {
     /// How often this board has been taken to its maximum. From the second time
     /// onward the completed card carries a ×N badge.
     var maxCompletions = 0
-    /// Cards banked in the run waiting to be continued, or nil when this level
-    /// was not left part-way through.
-    var pausedCards: Int?
+    /// Highest uninterrupted step in the run waiting to be continued, or nil
+    /// when this level was not left part-way through.
+    var pausedScore: Int?
     /// Set for the level just returned from: its score counts up from the value
     /// the player had before the session, and the card is briefly outlined.
     var celebrationStart: Int?
@@ -530,7 +530,7 @@ struct LevelCardView: View {
         .onChange(of: celebrationStartedAt) { animateIfCelebrating() }
         .accessibilityIdentifier("level-\(level.index)")
         .accessibilityLabel(Text(L("home.levelAccessibility \(level.index)")))
-        .accessibilityValue(Text(verbatim: pausedCards.map {
+        .accessibilityValue(Text(verbatim: pausedScore.map {
             "\(best), \(L("home.pausedCards \($0)"))"
         } ?? "\(best)"))
     }
@@ -613,9 +613,9 @@ struct LevelCardView: View {
             Image(systemName: "lock.fill")
                 .font(.system(size: 10 * cardScale, weight: .bold))
                 .foregroundStyle(theme.deepColor.opacity(0.75))
-        } else if let pausedCards {
+        } else if let pausedScore {
             // A paused level shows its best score next to what the waiting run
-            // has already banked, so the reason to go back is on the card.
+            // will resume at, so the menu agrees with the in-game score.
             HStack(spacing: 3 * cardScale) {
                 cardChip
                 Rectangle()
@@ -624,7 +624,7 @@ struct LevelCardView: View {
                 HStack(spacing: 2 * cardScale) {
                     Image(systemName: "pause.fill")
                         .font(.system(size: 8 * cardScale))
-                    Text(verbatim: LN(pausedCards))
+                    Text(verbatim: LN(pausedScore))
                         .font(.system(size: 11 * cardScale, weight: .bold))
                         .monospacedDigit()
                 }

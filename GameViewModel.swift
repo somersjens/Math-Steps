@@ -373,7 +373,8 @@ final class GameViewModel: ObservableObject {
             onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
             haptic(.success)
-            delay = GameConfig.nextRoundDelay.correct
+            delay = max(GameConfig.nextRoundDelay.correct,
+                        GameConfig.stepCorrectResolutionFallbackDuration)
         case .wrong:
             sync()
             onAnswerResolved?(false, false)

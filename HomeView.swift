@@ -913,7 +913,9 @@ struct HomeView: View {
             best: heldBest(for: level, storedBest: storedBest),
             maximum: board.maximum,
             maxCompletions: displayedMaxCompletions(board),
-            pausedCards: PausedSessionStore.shared.session(board)?.cards,
+            pausedScore: PausedSessionStore.shared.session(board).map {
+                min($0.resumedScore, board.maximum)
+            },
             celebrationStart: celebration?.levelID == level.id
                 ? celebration?.levelStart : nil,
             celebrationStartedAt: celebration?.levelID == level.id

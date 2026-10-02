@@ -311,54 +311,71 @@ struct GameView: View {
         // the very first frame, before the insets have been sampled.
         let topInset = max(screenInsets.top, isPad ? 24 : 54)
 
-        return ZStack(alignment: .top) {
-            MathStepsPlayfield(round: model.round,
-                               selectedOptionID: model.selectedOptionID,
-                               brokenOptionIDs: model.brokenOptionIDs,
-                               routeRounds: model.routeRounds,
-                               brokenRouteOptionIDs: model.brokenRouteOptionIDs,
-                               currentStep: model.currentStep,
-                               maximumSteps: model.maximumRounds,
-                               character: character,
-                               isPad: isPad,
-                               isLive: model.acceptsInput,
-                               isRunning: isReefRunning,
-                               playsEntrance: playsFishEntrance,
-                               playsLevelCompletion: playsLevelCompletion,
-                               playsTimeOutFinale: playsTimeOutFinale,
-                               reduceMotion: reduceMotion,
-                               tutorialPlan: tutorial.clawPlan,
-                               bottomReserve: screenInsets.bottom,
-                               onSelect: model.select,
-                               onRewardArrived: model.scoreBubbleArrived,
-                               onCorrectLanding: model.stepLandingCompleted,
-                               onEntranceComplete: finishFishEntrance,
-                               onLevelCompletionFinished: finishLevelCompletion,
-                               onTimeOutFinished: finishTimeOutFinale,
-                               onTutorialMove: {
-                                   tutorial.handleClaw(.movedClaw)
-                               })
+        return GeometryReader { proxy in
+            let horizontalHUDPadding = max(isPad ? 18 : 7,
+                                           screenInsets.leading + 5)
+            let hudTop = topInset + (isPad ? 8 : 6)
+            let scoreIconWidth: CGFloat = isPad ? 23 : 16
+            let scoreHorizontalPadding: CGFloat = isPad ? 14 : 10
+            let scoreTarget = CGPoint(
+                // Match the leading paw frame inside `ClawScoreBadge`, rather
+                // than aiming at the centre of the complete score capsule.
+                x: proxy.size.width - horizontalHUDPadding - hudMetricWidth
+                    + scoreHorizontalPadding + scoreIconWidth / 2,
+                y: hudTop + hudMetricHeight + hudMetricSpacing + hudMetricHeight / 2
+            )
 
-            hud
-                .padding(.horizontal, max(isPad ? 18 : 7, screenInsets.leading + 5))
-                .padding(.top, topInset + (isPad ? 8 : 6))
-                .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
-                .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
-                .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
+            ZStack(alignment: .top) {
+                MathStepsPlayfield(round: model.round,
+                                   selectedOptionID: model.selectedOptionID,
+                                   brokenOptionIDs: model.brokenOptionIDs,
+                                   routeRounds: model.routeRounds,
+                                   brokenRouteOptionIDs: model.brokenRouteOptionIDs,
+                                   currentStep: model.currentStep,
+                                   highestStep: model.highestStep,
+                                   maximumSteps: model.maximumRounds,
+                                   character: character,
+                                   isPad: isPad,
+                                   isLive: model.acceptsInput,
+                                   isRunning: isReefRunning,
+                                   playsEntrance: playsFishEntrance,
+                                   playsLevelCompletion: playsLevelCompletion,
+                                   playsTimeOutFinale: playsTimeOutFinale,
+                                   reduceMotion: reduceMotion,
+                                   tutorialPlan: tutorial.clawPlan,
+                                   bottomReserve: screenInsets.bottom,
+                                   scoreTarget: scoreTarget,
+                                   onSelect: model.select,
+                                   onRewardArrived: model.scoreBubbleArrived,
+                                   onCorrectLanding: model.stepLandingCompleted,
+                                   onEntranceComplete: finishFishEntrance,
+                                   onLevelCompletionFinished: finishLevelCompletion,
+                                   onTimeOutFinished: finishTimeOutFinale,
+                                   onTutorialMove: {
+                                       tutorial.handleClaw(.movedClaw)
+                                   })
 
-            // The walkthrough speaks from just under the HUD, clear of both the
-            // sum on the coral and the water the first steps ask the player to
-            // cross. It never takes a touch: the reef stays fully steerable
-            // while a step is being read.
-            if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
-                TutorialMessageCard(text: message, theme: character, isPad: isPad)
-                    .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
-                    .padding(.top, topInset + hudHeight + (isPad ? 22 : 16))
-                    // Scales up in place rather than sliding down: a card that
-                    // travelled would cross the HUD on its way in.
-                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
-                    .allowsHitTesting(false)
-                    .id(tutorial.step)
+                hud
+                    .padding(.horizontal, horizontalHUDPadding)
+                    .padding(.top, hudTop)
+                    .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
+                    .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
+                    .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
+
+                // The walkthrough speaks from just under the HUD, clear of both the
+                // sum on the coral and the water the first steps ask the player to
+                // cross. It never takes a touch: the reef stays fully steerable
+                // while a step is being read.
+                if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
+                    TutorialMessageCard(text: message, theme: character, isPad: isPad)
+                        .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
+                        .padding(.top, topInset + hudHeight + (isPad ? 22 : 16))
+                        // Scales up in place rather than sliding down: a card that
+                        // travelled would cross the HUD on its way in.
+                        .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+                        .allowsHitTesting(false)
+                        .id(tutorial.step)
+                }
             }
         }
         .ignoresSafeArea()

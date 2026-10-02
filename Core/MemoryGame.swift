@@ -218,7 +218,7 @@ nonisolated public final class MemoryGame {
         result.bonusCards = session.bonusCards
         result.cardsEarned = session.cards
         currentStep = session.currentStep ?? session.correctStreak ?? 0
-        highestStep = session.highestStep ?? max(currentStep, session.correctAnswers)
+        highestStep = session.resumedScore
         result.highestStep = highestStep
         correctStreak = session.correctStreak ?? 0
         let routeRound = min(max(1, currentStep + 1), maximumRounds)

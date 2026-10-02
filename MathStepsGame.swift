@@ -25,6 +25,7 @@ struct MathStepsPlayfield: View {
     let routeRounds: [GameRound]
     let brokenRouteOptionIDs: Set<UUID>
     let currentStep: Int
+    let highestStep: Int
     let maximumSteps: Int
     let character: AnimalCharacter
     let isPad: Bool
@@ -36,6 +37,10 @@ struct MathStepsPlayfield: View {
     let reduceMotion: Bool
     let tutorialPlan: ClawTutorialPlan
     let bottomReserve: CGFloat
+    /// Centre of the score capsule in this playfield's coordinate space.
+    /// Keeping the destination explicit makes the reward flight land on the
+    /// HUD on every device size instead of aiming at a tuned screen corner.
+    let scoreTarget: CGPoint
     let onSelect: (UUID) -> Bool
     let onRewardArrived: () -> Void
     let onCorrectLanding: () -> Void
@@ -72,6 +77,7 @@ struct MathStepsPlayfield: View {
     /// actual landing turns all three numbers into background information.
     @State private var currentRowNumbersMuted = false
     @State private var landingImpact = false
+    @State private var landingBurstProgress: CGFloat = 0
     @State private var hatchOpen = false
     @State private var liftPlatformY: CGFloat = 0
     @State private var liftPlatformVisible = false
@@ -84,7 +90,8 @@ struct MathStepsPlayfield: View {
     /// contact frame and shares the character's downward acceleration.
     @State private var shatterProgress: CGFloat = 0
     @State private var rewardVisible = false
-    @State private var rewardRise: CGFloat = 0
+    @State private var rewardFlightProgress: CGFloat = 0
+    @State private var rewardSource = CGPoint.zero
     /// Absolute route position while the camera travels back after a fall.
     /// Nil during normal play; zero means the starting platform is reached.
     @State private var rewindPosition: CGFloat?
@@ -111,6 +118,10 @@ struct MathStepsPlayfield: View {
     /// any combination of those values directly can move the finish island for
     /// one intermediate render at every round boundary.
     @State private var routeProgress: CGFloat = 0
+    /// Absolute route boundary immediately before the tile that caused the
+    /// latest fall. Subtracting world travel keeps the marker fixed to the
+    /// course while the player climbs toward and eventually past it.
+    @State private var checkpointBoundary: CGFloat?
 
     /// The route is planned once. Rendering uses a moving window over those
     /// fixed rounds; the destination sits after the final stored round rather
@@ -178,6 +189,11 @@ struct MathStepsPlayfield: View {
                     StepCourseRails(layout: layout,
                                     character: character,
                                     farDepth: railEndDepth)
+                }
+                if let checkpointBoundary {
+                    checkpointFlag(layout: layout,
+                                   absoluteDepth: checkpointBoundary,
+                                   worldTravel: worldTravel)
                 }
                 if let rewindPosition {
                     rewindRows(layout: layout, position: rewindPosition)
@@ -270,16 +286,17 @@ struct MathStepsPlayfield: View {
 
                 if landingImpact {
                     let impactDepth = -visualCameraPhase
-                    StepLandingImpact(character: character, isPad: isPad)
-                        .frame(width: layout.tileWidth * 1.75,
-                               height: isPad ? 54 : 38)
+                    StepCorrectBurst(character: character,
+                                     isPad: isPad,
+                                     progress: landingBurstProgress,
+                                     reduceMotion: reduceMotion)
+                        .frame(width: layout.tileWidth * layout.scale(at: impactDepth) * 1.28,
+                               height: layout.tileHeight(at: impactDepth) * 1.45)
                         .position(x: layout.size.width / 2
                                     + layout.laneOffset(lane: landedLane,
                                                         at: impactDepth),
-                                  y: layout.y(at: impactDepth)
-                                    - layout.tileHeight(at: impactDepth) * 0.42)
-                        .zIndex(7.3)
-                        .transition(.scale(scale: 0.55).combined(with: .opacity))
+                                  y: layout.y(at: impactDepth))
+                        .zIndex(9.2)
                         .allowsHitTesting(false)
                 }
 
@@ -311,7 +328,16 @@ struct MathStepsPlayfield: View {
                     startDeckForeground(layout: layout)
                 }
 
-                if rewardVisible { rewardBadge(layout: layout) }
+                if rewardVisible {
+                    StepFlyingScoreNut(character: character,
+                                       isPad: isPad,
+                                       progress: rewardFlightProgress,
+                                       source: rewardSource,
+                                       target: scoreTarget,
+                                       reduceMotion: reduceMotion)
+                        .zIndex(30)
+                        .allowsHitTesting(false)
+                }
 
                 if restartMessageVisible { restartBadge(layout: layout) }
             }
@@ -336,6 +362,11 @@ struct MathStepsPlayfield: View {
             }
             .onChange(of: playsTimeOutFinale) { _, active in
                 if active { playTimeOut() }
+            }
+            .onChange(of: highestStep) { _, newValue in
+                // A replay resets the model without necessarily recreating
+                // this view, so discard the marker from the previous run.
+                if newValue == 0 { checkpointBoundary = nil }
             }
             .onAppear {
 #if canImport(UIKit)
@@ -541,21 +572,28 @@ struct MathStepsPlayfield: View {
             .allowsHitTesting(false)
     }
 
-    private func rewardBadge(layout: StepCourseLayout) -> some View {
-        HStack(spacing: 5) {
-            Text(verbatim: "+1")
-                .font(.system(size: isPad ? 25 : 18, weight: .black, design: .rounded))
-            CurrencyIcon(size: isPad ? 28 : 20)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(red: 0.03, green: 0.18, blue: 0.40).opacity(0.92), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.34), lineWidth: 1))
-        .position(x: layout.size.width / 2,
-                  y: layout.baseY - layout.dogSize - rewardRise)
-        .transition(.scale.combined(with: .opacity))
-        .zIndex(9)
+    private func checkpointFlag(layout: StepCourseLayout,
+                                absoluteDepth: CGFloat,
+                                worldTravel: CGFloat) -> some View {
+        let depth = absoluteDepth - worldTravel
+        let perspectiveScale = layout.scale(at: depth)
+        let width = (isPad ? CGFloat(72) : CGFloat(48)) * perspectiveScale
+        let height = (isPad ? CGFloat(68) : CGFloat(46)) * perspectiveScale
+        let railX = layout.size.width / 2
+            + layout.supportOffset(boundary: 3, at: depth)
+        let railY = layout.y(at: depth)
+
+        return StepCheckpointFlag(character: character, isPad: isPad)
+            .frame(width: width, height: height)
+            // The pole occupies the leading edge and ends at the lower-left
+            // corner. Positioning the scaled frame from that corner plants it
+            // exactly on the sampled right support at every perspective depth.
+            .position(x: railX + width / 2,
+                      y: railY - height / 2)
+            .opacity(layout.opacity(at: depth))
+            .zIndex(6.6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func restartBadge(layout: StepCourseLayout) -> some View {
@@ -602,6 +640,10 @@ struct MathStepsPlayfield: View {
             return
         }
 
+        // A correct answer only changes the visible high-water score when the
+        // next step lies beyond the best step already reached this run.
+        let earnsNewHighestStep = option.isCorrect && currentStep >= highestStep
+
         onTutorialMove()
         guard onSelect(option.id) else { return }
         answerJumpInProgress = true
@@ -613,12 +655,14 @@ struct MathStepsPlayfield: View {
         if option.isCorrect {
             playCorrectJump(toLane: lane,
                             token: token,
-                            layout: layout)
+                            layout: layout,
+                            earnsNewHighestStep: earnsNewHighestStep)
         } else {
             playWrongJump(optionID: option.id,
                           lane: lane,
                           token: token,
-                          layout: layout)
+                          layout: layout,
+                          failedRouteIndex: currentRouteIndex)
         }
     }
 
@@ -629,7 +673,8 @@ struct MathStepsPlayfield: View {
 
     private func playCorrectJump(toLane lane: Int,
                                  token: Int,
-                                 layout: StepCourseLayout) {
+                                 layout: StepCourseLayout,
+                                 earnsNewHighestStep: Bool) {
         let jump = prepareAnswerJump(toLane: lane,
                                      fallsThrough: false,
                                      layout: layout)
@@ -654,11 +699,28 @@ struct MathStepsPlayfield: View {
                 dogScale = 1
                 landedRound = round
             }
-            rewardRise = 0
-            rewardVisible = true
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.62)) {
+            var effectTransaction = Transaction()
+            effectTransaction.disablesAnimations = true
+            withTransaction(effectTransaction) {
                 landingImpact = true
-                rewardRise = isPad ? 52 : 34
+                landingBurstProgress = 0
+                rewardSource = CGPoint(x: layout.size.width / 2
+                                        + layout.laneOffset(lane: lane, at: -1),
+                                       y: layout.y(at: -1))
+                rewardFlightProgress = 0
+                rewardVisible = earnsNewHighestStep
+            }
+            DispatchQueue.main.async {
+                guard animationToken == token else { return }
+                withAnimation(.easeOut(duration: reduceMotion ? 0.10 : 0.62)) {
+                    landingBurstProgress = 1
+                }
+                if earnsNewHighestStep {
+                    withAnimation(.timingCurve(0.22, 0.72, 0.22, 1,
+                                               duration: reduceMotion ? 0.16 : 0.78)) {
+                        rewardFlightProgress = 1
+                    }
+                }
             }
             // Only contact turns this completed row into background context.
             // The next row inherits this muted state for one frame and then
@@ -666,15 +728,28 @@ struct MathStepsPlayfield: View {
             withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.18)) {
                 currentRowNumbersMuted = true
             }
-            onRewardArrived()
-            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.01 : 0.04)) {
+            if !earnsNewHighestStep {
+                onRewardArrived()
+            }
+            let scoreArrivalDelay = earnsNewHighestStep
+                ? (reduceMotion ? 0.16 : 0.78)
+                : (reduceMotion ? 0.01 : 0.04)
+            DispatchQueue.main.asyncAfter(deadline: .now() + scoreArrivalDelay) {
                 guard animationToken == token else { return }
+                if earnsNewHighestStep {
+                    onRewardArrived()
+                    withAnimation(.easeOut(duration: 0.10)) {
+                        rewardVisible = false
+                    }
+                }
                 onCorrectLanding()
             }
-            let settleDuration = reduceMotion ? 0.02 : 0.16
+            let settleDuration = earnsNewHighestStep
+                ? scoreArrivalDelay + 0.02
+                : (reduceMotion ? 0.02 : 0.16)
             DispatchQueue.main.asyncAfter(deadline: .now() + settleDuration) {
                 guard animationToken == token else { return }
-                withAnimation(.easeOut(duration: settleDuration)) {
+                withAnimation(.easeOut(duration: reduceMotion ? 0.04 : 0.12)) {
                     landingImpact = false
                 }
                 answerJumpInProgress = false
@@ -730,7 +805,8 @@ struct MathStepsPlayfield: View {
     private func playWrongJump(optionID: UUID,
                                lane: Int,
                                token: Int,
-                               layout: StepCourseLayout) {
+                               layout: StepCourseLayout,
+                               failedRouteIndex: Int) {
         // The engine already knows the answer is wrong, but the view withholds
         // that information until the same jump as a correct answer reaches the
         // glass.
@@ -787,6 +863,11 @@ struct MathStepsPlayfield: View {
             dogOpacity = 0
             landedRound = nil
             restartMessageVisible = true
+            // The failed row has an integer world depth. The halfway point
+            // immediately before it is the boundary after the last good row.
+            checkpointBoundary = failedRouteIndex > 0
+                ? CGFloat(failedRouteIndex) - 0.5
+                : nil
 
             let failedIndex = max(0, (round?.number ?? (currentStep + 1)) - 1)
             // The failed jump used the same camera movement as a successful
@@ -896,8 +977,9 @@ struct MathStepsPlayfield: View {
         brokenID = nil
         shatterProgress = 0
         rewardVisible = false
-        rewardRise = 0
+        rewardFlightProgress = 0
         landingImpact = false
+        landingBurstProgress = 0
         cameraPhase = 0
         routeProgress = CGFloat(currentStep)
         cameraLaneOffset = 0
@@ -1023,7 +1105,9 @@ struct MathStepsPlayfield: View {
         victoryInProgress = true
         victoryChestAttached = false
         rewardVisible = false
+        rewardFlightProgress = 0
         landingImpact = false
+        landingBurstProgress = 0
         // Freeze the exact renderer-owned position used in the preceding
         // frame. Deriving this from the newly published round would let the
         // island shift just before the final jump starts.
@@ -1263,24 +1347,163 @@ private struct StepJumpArcModifier: AnimatableModifier {
     }
 }
 
-private struct StepLandingImpact: View {
+private struct StepCorrectBurst: View, Animatable {
+    let character: AnimalCharacter
+    let isPad: Bool
+    var progress: CGFloat
+    let reduceMotion: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let p = min(1, max(0, progress))
+            let travel = reduceMotion ? CGFloat(0.18) : p
+            // Hold brightness through the first half of the burst, then fade
+            // quickly. The earlier linear fade made the dust disappear before
+            // its particles had separated enough to read as stars.
+            let fade = p < 0.48 ? CGFloat(1) : max(0, (1 - p) / 0.52)
+            let centre = CGPoint(x: proxy.size.width / 2,
+                                 y: proxy.size.height / 2)
+
+            ZStack {
+                ForEach(0..<20, id: \.self) { index in
+                    let angle = Double(index) * (.pi * 2 / 20)
+                        + Double(index % 3) * 0.16
+                    let distance = min(proxy.size.width, proxy.size.height)
+                        * (0.38 + CGFloat(index % 4) * 0.085)
+                    let x = cos(angle) * distance * travel
+                    let y = sin(angle) * distance * travel * 0.72
+                    let size = (isPad ? CGFloat(16) : CGFloat(10))
+                        * (0.72 + CGFloat(index % 3) * 0.18)
+
+                    Group {
+                        if index.isMultiple(of: 3) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: size, weight: .black))
+                                .foregroundStyle(index.isMultiple(of: 2)
+                                    ? Color.white
+                                    : Color(red: 1.0, green: 0.76, blue: 0.08))
+                        } else {
+                            Circle()
+                                .fill(index.isMultiple(of: 2)
+                                    ? Color.white
+                                    : Color.yellow)
+                                .frame(width: size * 0.52, height: size * 0.52)
+                        }
+                    }
+                    .position(x: centre.x + x, y: centre.y + y)
+                    .scaleEffect(0.35 + sin(.pi * p) * 0.9)
+                    .rotationEffect(.degrees(Double(index * 31) + Double(p) * 95))
+                    .opacity(Double(fade))
+                    .shadow(color: character.deepColor.opacity(0.82), radius: 4)
+                }
+
+                Image(systemName: "sparkles")
+                    .font(.system(size: isPad ? 42 : 29, weight: .black))
+                    .foregroundStyle(Color.white, Color.yellow)
+                    .scaleEffect(0.55 + p * 0.8)
+                    .opacity(Double(max(0, 1 - p * 1.4)))
+                    .shadow(color: character.deepColor.opacity(0.82), radius: isPad ? 12 : 8)
+            }
+        }
+    }
+}
+
+/// The single nut awarded by a genuinely new high step. A quadratic path
+/// gives it a small celebratory lift before it accelerates into the HUD; no
+/// badge or extra label competes with the tile burst.
+private struct StepFlyingScoreNut: View, Animatable {
+    let character: AnimalCharacter
+    let isPad: Bool
+    var progress: CGFloat
+    let source: CGPoint
+    let target: CGPoint
+    let reduceMotion: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        GeometryReader { _ in
+            let p = min(1, max(0, progress))
+            let control = CGPoint(
+                x: source.x + (target.x - source.x) * 0.28,
+                y: min(source.y, target.y) - (reduceMotion ? 8 : (isPad ? 92 : 58))
+            )
+            let inverse = 1 - p
+            let point = CGPoint(
+                x: inverse * inverse * source.x
+                    + 2 * inverse * p * control.x
+                    + p * p * target.x,
+                y: inverse * inverse * source.y
+                    + 2 * inverse * p * control.y
+                    + p * p * target.y
+            )
+            let size: CGFloat = isPad ? 34 : 24
+
+            CurrencyIcon(size: size)
+                .foregroundStyle(
+                    LinearGradient(colors: [.white, Color.yellow, character.skyColor],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .rotationEffect(.degrees(Double(p) * 210))
+                .scaleEffect(1 + sin(.pi * p) * 0.24)
+                .position(point)
+                .shadow(color: character.deepColor.opacity(0.52), radius: 4, y: 3)
+                .opacity(Double(p < 0.98 ? 1 : max(0, (1 - p) / 0.02)))
+        }
+    }
+}
+
+private struct StepCheckpointFlag: View {
     let character: AnimalCharacter
     let isPad: Bool
 
     var body: some View {
-        ZStack {
-            Ellipse()
-                .stroke(.white.opacity(0.88), lineWidth: isPad ? 4 : 3)
-            Ellipse()
-                .stroke(character.color.opacity(0.78), lineWidth: isPad ? 9 : 6)
-                .scaleEffect(0.72)
-            HStack(spacing: isPad ? 54 : 36) {
-                Circle().fill(.white.opacity(0.86))
-                Circle().fill(.white.opacity(0.86))
+        GeometryReader { proxy in
+            let poleWidth: CGFloat = isPad ? 6 : 4
+            ZStack(alignment: .topLeading) {
+                Capsule()
+                    .fill(LinearGradient(colors: [.white, character.skyColor],
+                                         startPoint: .leading,
+                                         endPoint: .trailing))
+                    .frame(width: poleWidth, height: proxy.size.height)
+                    .shadow(color: .black.opacity(0.24), radius: 2, y: 2)
+
+                CheckpointPennantShape()
+                    .fill(LinearGradient(colors: [Color.yellow, Color.orange],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .overlay {
+                        CheckpointPennantShape()
+                            .stroke(.white.opacity(0.92), lineWidth: isPad ? 2.5 : 1.5)
+                    }
+                    .frame(width: proxy.size.width * 0.88,
+                           height: proxy.size.height * 0.48)
+                    .offset(x: poleWidth * 0.55)
+                    .shadow(color: character.deepColor.opacity(0.28), radius: 3, y: 2)
             }
-            .frame(height: isPad ? 10 : 7)
         }
-        .shadow(color: character.skyColor.opacity(0.82), radius: isPad ? 10 : 7)
+    }
+}
+
+private struct CheckpointPennantShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.14))
+        path.addLine(to: CGPoint(x: rect.width * 0.72, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.86))
+        path.addLine(to: CGPoint(x: 0, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

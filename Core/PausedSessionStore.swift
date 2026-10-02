@@ -111,6 +111,16 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
             && (correctStreak ?? 0) >= 0
             && (remainingTime ?? 1) > 0
     }
+
+    /// The score the player will see when this run is resumed. `cards` is the
+    /// cumulative number of correct answers and can keep rising after a fall;
+    /// the level score is the highest uninterrupted step instead. Older saves
+    /// predate that field, so preserve the same fallback used by the engine.
+    public var resumedScore: Int {
+        if let highestStep { return max(0, highestStep) }
+        let restoredCurrentStep = currentStep ?? correctStreak ?? 0
+        return max(0, max(restoredCurrentStep, correctAnswers))
+    }
 }
 
 public final class PausedSessionStore {

@@ -168,6 +168,9 @@ struct MathStepsPlayfield: View {
                                           bottomReserve: bottomReserve)
             let characterSize = StepCharacterSprite.hasAnimation(for: character)
                 ? layout.dogSize
+                    * StepCharacterAnimation.characterScale(
+                        for: character.id
+                    )
                 : layout.dogSize / 1.5
             // Each authored square canvas leaves a different amount of room
             // below the feet. Normalise that transparent padding so every
@@ -3447,11 +3450,19 @@ private struct StepCharacterSprite: View {
                                                       frame: frame))
             .resizable()
             .scaledToFit()
+            .scaleEffect(StepCharacterAnimation.frameScale(
+                for: character.id,
+                frame: frame
+            ))
             .id("\(character.id)-\(frame)")
 #else
         Image("\(StepCharacterAnimation.assetPrefix(for: character.id) ?? 1).\(min(max(frame, 1), 8))")
             .resizable()
             .scaledToFit()
+            .scaleEffect(StepCharacterAnimation.frameScale(
+                for: character.id,
+                frame: frame
+            ))
             .id("\(character.id)-\(frame)")
 #endif
     }
@@ -3512,6 +3523,31 @@ nonisolated private enum StepCharacterAnimation {
         case "penguin": -0.033
         case "bunny": -0.014
         default: 0
+        }
+    }
+
+    /// Normalise the perceived idle size rather than the authored square
+    /// canvas. Broad silhouettes otherwise dominate, while the penguin's
+    /// generous transparent padding makes it read too small.
+    static func characterScale(for characterID: String) -> CGFloat {
+        switch characterID {
+        case "crab": return 0.92
+        case "elephant": return 0.96
+        case "bear": return 0.90
+        case "penguin": return 1.06
+        default: return 1
+        }
+    }
+
+    /// Correct systematic authored-size changes without flattening genuine
+    /// pose changes such as crouched legs or raised arms.
+    static func frameScale(for characterID: String, frame: Int) -> CGFloat {
+        switch (characterID, frame) {
+        case ("bear", 5): return 0.94
+        case ("bear", 6): return 0.89
+        case ("elephant", 6): return 0.91
+        case ("elephant", 7), ("elephant", 8): return 0.90
+        default: return 1
         }
     }
 

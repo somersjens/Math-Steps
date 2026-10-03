@@ -463,19 +463,14 @@ struct HomeView: View {
 
     private var characterButton: some View {
         let box: CGFloat = isPad ? 118 : 68
+        // Same continuous corner as Jumping Fox's home character. Portrait iPad
+        // scales the whole menu by 1.24, which turns this 20pt radius into the
+        // 24.8pt icon corner used there.
+        let iconShape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         return ZStack {
-            Circle()
-                .fill(LinearGradient(colors: [character.skyColor,
-                                              character.color],
-                                     startPoint: .topLeading,
-                                     endPoint: .bottomTrailing))
-                .overlay {
-                    Circle().stroke(.white.opacity(0.82),
-                                    lineWidth: isPad ? 3 : 2)
-                }
-                .shadow(color: character.deepColor.opacity(0.20),
-                        radius: isPad ? 8 : 5,
-                        y: isPad ? 5 : 3)
+            iconShape
+                .fill(LinearGradient(colors: [character.skyColor, character.tintColor],
+                                     startPoint: .top, endPoint: .bottom))
             CharacterMenuPortrait(character: character, side: box * 0.90) {
                 Image(systemName: "pawprint.fill")
                     .font(.system(size: box * 0.42, weight: .bold))
@@ -483,8 +478,15 @@ struct HomeView: View {
             }
             .accessibilityHidden(true)
         }
-            .frame(width: box, height: box)
-            .contentShape(Rectangle())
+        .frame(width: box, height: box)
+        .clipShape(iconShape)
+        .overlay {
+            iconShape.stroke(.white.opacity(0.9), lineWidth: 2)
+        }
+        .shadow(color: character.deepColor.opacity(0.18),
+                radius: 7,
+                y: 3)
+        .contentShape(iconShape)
         // One exclusive recognizer decides between the two actions. A
         // successful hold can therefore never fall through into the tap that
         // opens the character collection.

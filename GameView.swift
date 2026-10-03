@@ -140,7 +140,6 @@ struct GameView: View {
     }
 
     private var character: AnimalCharacter { CharacterCatalog.current(isPremium: premium.isPremium) }
-    private var clawPalette: ClawPalette { ClawPalette(character: character) }
     /// A narrow iPad window should use the compact gameplay metrics instead of
     /// squeezing the full-width iPad HUD and 285pt character into the scene.
     private var isPad: Bool {
@@ -410,7 +409,8 @@ struct GameView: View {
             pauseButton
 
             GameplayPromptBadge(prompt: model.round?.question.prompt ?? "",
-                                isPad: isPad)
+                                isPad: isPad,
+                                palette: hudPalette)
                 .frame(maxWidth: .infinity)
 
             VStack(spacing: hudMetricSpacing) {
@@ -418,14 +418,15 @@ struct GameView: View {
                                    isPad: isPad,
                                    width: hudMetricWidth,
                                    height: hudMetricHeight,
-                                   palette: clawPalette,
+                                   palette: hudPalette,
                                    highlightsTutorial: tutorial.clawPlan.highlightsTimer)
 
                 ClawScoreBadge(score: model.highestStep,
                                maximum: model.maximumRounds,
                                isPad: isPad,
                                width: hudMetricWidth,
-                               height: hudMetricHeight)
+                               height: hudMetricHeight,
+                               palette: hudPalette)
             }
         }
         .frame(maxWidth: isPad ? 900 : .infinity)
@@ -443,14 +444,13 @@ struct GameView: View {
             ZStack {
                 Circle()
                     .fill(
-                        LinearGradient(colors: [Color(red: 1.00, green: 0.84, blue: 0.25),
-                                                Color(red: 1.00, green: 0.57, blue: 0.04)],
+                        LinearGradient(colors: [hudPalette.highlight, hudPalette.shade],
                                        startPoint: .topLeading,
                                        endPoint: .bottomTrailing)
                     )
                     .overlay {
                         Circle()
-                            .stroke(Color(red: 1.00, green: 0.73, blue: 0.12),
+                            .stroke(hudPalette.rim,
                                     lineWidth: isPad ? 6 : 4)
                     }
                     .overlay(alignment: .topLeading) {
@@ -465,10 +465,10 @@ struct GameView: View {
                 Image(systemName: "pause.fill")
                     .font(.system(size: pauseGlyphSize, weight: .black))
                     .foregroundStyle(.white)
-                    .shadow(color: Color.orange.opacity(0.45), radius: 2, y: 2)
+                    .shadow(color: hudPalette.glow.opacity(0.45), radius: 2, y: 2)
             }
             .frame(width: hudHeight, height: hudHeight)
-            .shadow(color: Color(red: 0.02, green: 0.25, blue: 0.58).opacity(0.24),
+            .shadow(color: hudPalette.glow.opacity(0.28),
                     radius: isPad ? 9 : 6,
                     y: isPad ? 6 : 4)
         }
@@ -483,6 +483,7 @@ struct GameView: View {
     private var hudMetricWidth: CGFloat { isPad ? 148 : 98 }
     private var hudMetricHeight: CGFloat { (hudHeight - hudMetricSpacing) / 2 }
     private var pauseGlyphSize: CGFloat { isPad ? 31 : 23 }
+    private var hudPalette: GameplayHUDPalette { GameplayHUDPalette(character: character) }
 
     /// The reef only ticks while the level is actually being played: never
     /// behind the start card or the result card, and never while the app is in
@@ -493,11 +494,39 @@ struct GameView: View {
     }
 }
 
+/// Gold HUD chrome restained in the selected character's colours. Solid yellow
+/// becomes that animal's own accent — turquoise for the dog — and the
+/// light-gold to orange gradients keep the same glossy shape in that hue.
+private struct GameplayHUDPalette {
+    let character: AnimalCharacter
+
+    /// Bright face of the old gold fill.
+    var highlight: Color { mix(character.primaryRGB, (1, 1, 1), 0.28) }
+    /// Deeper end of the old gold-to-orange fill.
+    var shade: Color { mix(character.primaryRGB, character.deepRGB, 0.72) }
+    /// The accent that stands in for a flat gold stroke.
+    var rim: Color { character.color }
+    /// Pale wash that replaces the cream plaque.
+    var wash: Color { character.skyColor }
+    /// Shadow and glyph glow, formerly orange or navy.
+    var glow: Color { character.deepColor }
+
+    private func mix(_ base: (Double, Double, Double),
+                     _ target: (Double, Double, Double),
+                     _ amount: Double) -> Color {
+        let t = min(1, max(0, amount))
+        return Color(red: base.0 + (target.0 - base.0) * t,
+                     green: base.1 + (target.1 - base.1) * t,
+                     blue: base.2 + (target.2 - base.2) * t)
+    }
+}
+
 /// The question plaque shares the HUD's layout row, keeping its top and bottom
 /// edges locked to the pause button and the combined time/score column.
 private struct GameplayPromptBadge: View {
     let prompt: String
     let isPad: Bool
+    let palette: GameplayHUDPalette
 
     var body: some View {
         Text(verbatim: prompt)
@@ -509,14 +538,12 @@ private struct GameplayPromptBadge: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.white,
-                                                  Color(red: 1.0, green: 0.97, blue: 0.88)],
+                    .fill(LinearGradient(colors: [Color.white, palette.wash],
                                          startPoint: .top,
                                          endPoint: .bottom))
                     .overlay {
                         RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
-                            .stroke(LinearGradient(colors: [Color(red: 1.0, green: 0.83, blue: 0.28),
-                                                            Color(red: 0.98, green: 0.55, blue: 0.07)],
+                            .stroke(LinearGradient(colors: [palette.highlight, palette.shade],
                                                    startPoint: .top,
                                                    endPoint: .bottom),
                                     lineWidth: isPad ? 7 : 5)
@@ -529,7 +556,7 @@ private struct GameplayPromptBadge: View {
                             .padding(.top, isPad ? 8 : 6)
                     }
             }
-            .shadow(color: Color(red: 0.02, green: 0.25, blue: 0.58).opacity(0.30),
+            .shadow(color: palette.glow.opacity(0.30),
                     radius: 9,
                     y: 6)
             .id(prompt)
@@ -543,7 +570,7 @@ private struct GameplayTimerBadge: View {
     let isPad: Bool
     let width: CGFloat
     let height: CGFloat
-    let palette: ClawPalette
+    let palette: GameplayHUDPalette
     let highlightsTutorial: Bool
 
     private var remaining: Double { clock.remaining }
@@ -578,7 +605,7 @@ private struct GameplayTimerBadge: View {
         .padding(.horizontal, horizontalPadding)
         .foregroundStyle(.white)
         .frame(width: width, height: height)
-        .background(GameplayMetricBackground(height: height, isPad: isPad))
+        .background(GameplayMetricBackground(height: height, isPad: isPad, palette: palette))
         .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
         .overlay {
             if highlightsTutorial {
@@ -597,6 +624,7 @@ private struct ClawScoreBadge: View {
     let isPad: Bool
     let width: CGFloat
     let height: CGFloat
+    let palette: GameplayHUDPalette
 
     private var iconWidth: CGFloat { isPad ? 23 : 16 }
     private var horizontalPadding: CGFloat { isPad ? 14 : 10 }
@@ -624,30 +652,30 @@ private struct ClawScoreBadge: View {
         .padding(.horizontal, horizontalPadding)
         .foregroundStyle(.white)
         .frame(width: width, height: height)
-        .background(GameplayMetricBackground(height: height, isPad: isPad))
+        .background(GameplayMetricBackground(height: height, isPad: isPad, palette: palette))
         .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "\(score) / \(maximum)"))
     }
 }
 
-/// The compact counters use the same warm surface as the pause button. White
-/// values and navy icons keep both pieces readable without a second dark fill.
+/// The compact counters use the same character-stained surface as the pause
+/// button. White values and navy icons keep both pieces readable.
 private struct GameplayMetricBackground: View {
     let height: CGFloat
     let isPad: Bool
+    let palette: GameplayHUDPalette
 
     var body: some View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
             .fill(
-                LinearGradient(colors: [Color(red: 1.00, green: 0.84, blue: 0.25),
-                                        Color(red: 1.00, green: 0.57, blue: 0.05)],
+                LinearGradient(colors: [palette.highlight, palette.shade],
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                    .stroke(Color(red: 1.00, green: 0.72, blue: 0.10),
+                    .stroke(palette.rim,
                             lineWidth: isPad ? 2.5 : 2)
             }
             .overlay(alignment: .top) {

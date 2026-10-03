@@ -378,10 +378,7 @@ struct PremiumView: View {
         } label: {
             VStack(spacing: 5 * scale) {
                 ZStack(alignment: .topTrailing) {
-                    animal.cellArtwork(side: artworkSlotSize)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: artworkSlotSize, height: artworkSlotSize)
+                    characterCellArtwork(for: animal, side: artworkSlotSize, isAccessible: isAccessible)
                         .frame(maxWidth: .infinity)
                 }
                 characterCellChip(for: animal)
@@ -401,6 +398,25 @@ struct PremiumView: View {
         .accessibilityLabel(animal.localizedName)
         .accessibilityValue(Text(isAccessible ? "common.unlocked" : "common.locked"))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Unlocked characters use the menu portrait when one exists, so the cell
+    /// shows the same miniature as Jumping Fox. Locked cells keep the hanging
+    /// thumbnail until that animal is available.
+    @ViewBuilder
+    private func characterCellArtwork(for animal: AnimalCharacter, side: CGFloat, isAccessible: Bool) -> some View {
+        if isAccessible {
+            CharacterMenuPortrait(character: animal, side: side) {
+                animal.cellArtwork(side: side)
+                    .resizable()
+                    .scaledToFit()
+            }
+        } else {
+            animal.cellArtwork(side: side)
+                .resizable()
+                .scaledToFit()
+                .frame(width: side, height: side)
+        }
     }
 
     @ViewBuilder

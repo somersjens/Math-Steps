@@ -395,10 +395,9 @@ private struct OnboardingCharacterPortrait: View {
     let step: Int
     let isPad: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var swaysRight = false
-
     private var side: CGFloat { isPad ? 339 : 205 }
+    /// Vertical drop for each welcome step. The character stays centered
+    /// horizontally and only moves when the step (and its text) changes.
     private var ropeLength: CGFloat {
         if isPad {
             return step == 0 ? 220 : (step == 1 ? 65 : 182)
@@ -408,26 +407,11 @@ private struct OnboardingCharacterPortrait: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let centerX = proxy.size.width / 2
-            let angle: CGFloat = reduceMotion ? 0 : (swaysRight ? 1.4 : -1.4)
-            let radians = angle * .pi / 180
-            let hook = CGPoint(
-                x: centerX - sin(radians) * ropeLength,
-                y: cos(radians) * ropeLength
-            )
-
             CharacterMenuPortrait(character: character, side: side) {
                 HangingCharacterArtwork(character: character)
             }
-                .rotationEffect(.degrees(angle), anchor: .top)
-                .position(x: hook.x, y: hook.y + side / 2)
-                .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
-                swaysRight = true
-            }
+            .position(x: proxy.size.width / 2, y: ropeLength + side / 2)
+            .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)

@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 1600 1040">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1979d9"/>
+      <stop offset="1" stop-color="#c8edff"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a8e648"/>
+      <stop offset="0.55" stop-color="#51ad32"/>
+      <stop offset="1" stop-color="#218f42"/>
+    </linearGradient>
+    <linearGradient id="trunk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#86552f"/>
+      <stop offset="0.35" stop-color="#a46a38"/>
+      <stop offset="1" stop-color="#3f261e"/>
+    </linearGradient>
+    <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b4ea55"/>
+      <stop offset="1" stop-color="#59ad2e"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="8" flood-color="#163f75" flood-opacity="0.25"/>
+    </filter>
+    <filter id="treeShadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#17462c" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="760" fill="url(#sky)"/>
+  <circle cx="190" cy="125" r="92" fill="#fff3ac" opacity="0.64"/>
+  <g fill="#fff" opacity="0.38">
+    <ellipse cx="1270" cy="118" rx="185" ry="48"/>
+    <circle cx="1160" cy="92" r="54"/><circle cx="1290" cy="72" r="72"/><circle cx="1410" cy="102" r="48"/>
+  </g>
+
+  <text x="800" y="74" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="42" font-weight="800">Botanische varianten</text>
+  <text x="800" y="112" text-anchor="middle" fill="#e8f7ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="22">Bomen en struiken voor de zwevende eilanden</text>
+
+  <!-- Cards -->
+  <g fill="#f4fbff" fill-opacity="0.88" stroke="#ffffff" stroke-width="4" filter="url(#shadow)">
+    <rect x="90" y="155" width="430" height="535" rx="38"/>
+    <rect x="585" y="155" width="430" height="535" rx="38"/>
+    <rect x="1080" y="155" width="430" height="535" rx="38"/>
+  </g>
+
+  <!-- Round tree -->
+  <g transform="translate(115 170)" filter="url(#treeShadow)">
+    <ellipse cx="190" cy="424" rx="115" ry="26" fill="#18552e" opacity="0.20"/>
+    <ellipse cx="190" cy="430" rx="178" ry="48" fill="url(#grass)"/>
+    <rect x="174" y="246" width="32" height="190" rx="16" fill="url(#trunk)"/>
+    <path d="M190 318 Q158 276 128 245" fill="none" stroke="#4f311f" stroke-width="15" stroke-linecap="round"/>
+    <path d="M31 229 C7 198 19 126 58 104 C79 42 131 38 160 54 C194 22 258 40 270 91 C311 102 334 151 305 207 Q190 278 31 229 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="5"/>
+    <path d="M78 122 Q112 86 154 83" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="14" stroke-linecap="round"/>
+  </g>
+
+  <!-- Pine tree -->
+  <g transform="translate(610 170)" filter="url(#treeShadow)">
+    <ellipse cx="190" cy="424" rx="115" ry="26" fill="#18552e" opacity="0.20"/>
+    <ellipse cx="190" cy="430" rx="178" ry="48" fill="url(#grass)"/>
+    <rect x="174" y="244" width="32" height="192" rx="16" fill="url(#trunk)"/>
+    <path d="M190 318 Q155 282 135 250" fill="none" stroke="#4f311f" stroke-width="15" stroke-linecap="round"/>
+    <path d="M190 48 L242 139 L220 139 L275 224 L241 218 L298 300 Q190 274 82 300 L139 218 L105 224 L160 139 L138 139 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M171 91 L192 55 L210 89" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <!-- Windswept tree -->
+  <g transform="translate(1105 170)" filter="url(#treeShadow)">
+    <ellipse cx="190" cy="424" rx="115" ry="26" fill="#18552e" opacity="0.20"/>
+    <ellipse cx="190" cy="430" rx="178" ry="48" fill="url(#grass)"/>
+    <g transform="rotate(-4 190 435)">
+      <rect x="174" y="246" width="32" height="190" rx="16" fill="url(#trunk)"/>
+      <path d="M190 318 Q224 273 260 240" fill="none" stroke="#4f311f" stroke-width="15" stroke-linecap="round"/>
+    </g>
+    <path d="M34 228 C15 195 28 129 74 110 C106 64 158 68 194 86 C251 65 319 95 333 151 C346 198 316 230 269 239 C194 276 97 274 34 228 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="5"/>
+    <path d="M90 127 Q136 96 190 103" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="14" stroke-linecap="round"/>
+  </g>
+
+  <g fill="#f7fcff" fill-opacity="0.92">
+    <rect x="171" y="625" width="268" height="48" rx="24"/>
+    <rect x="666" y="625" width="268" height="48" rx="24"/>
+    <rect x="1161" y="625" width="268" height="48" rx="24"/>
+  </g>
+  <g fill="#123f78" font-family="-apple-system, BlinkMacSystemFont, sans-serif" text-anchor="middle">
+    <text x="305" y="659" font-size="29" font-weight="800">Ronde kroon</text>
+    <text x="800" y="659" font-size="29" font-weight="800">Lucht-den</text>
+    <text x="1295" y="659" font-size="29" font-weight="800">Windboom</text>
+  </g>
+
+  <!-- Ground-cover catalog -->
+  <g fill="#f4fbff" fill-opacity="0.88" stroke="#ffffff" stroke-width="4" filter="url(#shadow)">
+    <rect x="90" y="720" width="430" height="270" rx="34"/>
+    <rect x="585" y="720" width="430" height="270" rx="34"/>
+    <rect x="1080" y="720" width="430" height="270" rx="34"/>
+  </g>
+
+  <g transform="translate(150 735)" filter="url(#treeShadow)">
+    <ellipse cx="155" cy="154" rx="132" ry="26" fill="url(#grass)"/>
+    <path d="M51 142 C28 119 40 79 72 72 C91 39 128 45 151 61 C184 38 229 58 235 91 C262 102 270 129 252 145 Q154 172 51 142 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="4"/>
+    <path d="M84 84 Q112 66 141 69" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(645 735)" filter="url(#treeShadow)">
+    <ellipse cx="155" cy="154" rx="132" ry="26" fill="url(#grass)"/>
+    <path d="M48 143 C32 112 47 78 78 73 C103 45 133 55 151 68 C189 39 229 65 231 96 C260 106 267 132 247 145 Q151 171 48 143 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="4"/>
+    <path d="M82 86 Q110 68 140 72" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(1140 735)" filter="url(#treeShadow)">
+    <ellipse cx="155" cy="154" rx="132" ry="26" fill="url(#grass)"/>
+    <path d="M35 143 C22 119 34 92 62 87 C78 59 110 65 127 79 C152 55 190 70 194 98 C216 106 222 131 205 144 Q120 166 35 143 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="4"/>
+    <path d="M139 145 C125 113 143 75 174 70 C200 42 233 55 247 77 C271 72 290 95 284 118 C301 132 291 148 276 151 Q208 171 139 145 Z" fill="url(#leaf)" stroke="#297c35" stroke-width="4"/>
+    <path d="M59 100 Q82 82 105 84 M171 83 Q193 65 215 70" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <g fill="#f7fcff" fill-opacity="0.94">
+    <rect x="171" y="930" width="268" height="44" rx="22"/>
+    <rect x="666" y="930" width="268" height="44" rx="22"/>
+    <rect x="1161" y="930" width="268" height="44" rx="22"/>
+  </g>
+  <g fill="#123f78" font-family="-apple-system, BlinkMacSystemFont, sans-serif" text-anchor="middle">
+    <text x="305" y="961" font-size="27" font-weight="800">Lage struik</text>
+    <text x="800" y="961" font-size="27" font-weight="800">Hoge struik</text>
+    <text x="1295" y="961" font-size="27" font-weight="800">Struikenmix</text>
+  </g>
+</svg>

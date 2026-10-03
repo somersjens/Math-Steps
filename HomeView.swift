@@ -471,11 +471,15 @@ struct HomeView: View {
             iconShape
                 .fill(LinearGradient(colors: [character.skyColor, character.tintColor],
                                      startPoint: .top, endPoint: .bottom))
-            CharacterMenuPortrait(character: character, side: box * 0.90) {
+            // The portrait deliberately renders beyond the circular slot. A
+            // 20% lift gives every animal more presence without enlarging the
+            // header's layout footprint or pushing the name/streak sideways.
+            CharacterMenuPortrait(character: character, side: box * 1.08) {
                 Image(systemName: "pawprint.fill")
                     .font(.system(size: box * 0.42, weight: .bold))
                     .foregroundStyle(.white)
             }
+            .zIndex(1)
             .accessibilityHidden(true)
         }
         .frame(width: box, height: box)

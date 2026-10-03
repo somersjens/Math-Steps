@@ -167,6 +167,14 @@ struct AnimalCharacter: Identifiable, Equatable {
     var menuPortraitImageName: String? {
         switch id {
         case "dog": "1"
+        case "lion": "2"
+        case "octopus": "3"
+        case "crab": "4"
+        case "elephant": "5"
+        case "bear": "6"
+        case "frog": "8"
+        case "penguin": "9"
+        case "bunny": "10"
         default: nil
         }
     }

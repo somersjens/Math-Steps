@@ -400,23 +400,16 @@ struct PremiumView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// Unlocked characters use the menu portrait when one exists, so the cell
-    /// shows the same miniature as Jumping Fox. Locked cells keep the hanging
-    /// thumbnail until that animal is available.
-    @ViewBuilder
+    /// Every collection cell uses the standalone menu portrait when one is
+    /// available. Locked animals remain recognisable, but are softened until
+    /// the player can select them.
     private func characterCellArtwork(for animal: AnimalCharacter, side: CGFloat, isAccessible: Bool) -> some View {
-        if isAccessible {
-            CharacterMenuPortrait(character: animal, side: side) {
-                animal.cellArtwork(side: side)
-                    .resizable()
-                    .scaledToFit()
-            }
-        } else {
+        CharacterMenuPortrait(character: animal, side: side) {
             animal.cellArtwork(side: side)
                 .resizable()
                 .scaledToFit()
-                .frame(width: side, height: side)
         }
+        .opacity(isAccessible ? 1 : 0.5)
     }
 
     @ViewBuilder

@@ -505,6 +505,12 @@ final class GameViewModel: ObservableObject {
     func scoreBubbleArrived() {
         guard !pendingScoreRewards.isEmpty else { return }
         cards += pendingScoreRewards.removeFirst()
+        // Advancing the round may already have made the next sum visible.
+        // Keep the HUD score tied to the physical trophy arrival instead of
+        // letting that earlier round update increment it prematurely.
+        if pendingScoreRewards.isEmpty {
+            highestStep = engine.highestStep
+        }
         AppAudio.shared.playCardTotal()
         haptic(.light)
     }
@@ -604,11 +610,10 @@ final class GameViewModel: ObservableObject {
         roundNumber = engine.roundNumber
         if pendingScoreRewards.isEmpty { cards = engine.cards }
         currentStep = engine.currentStep
-        // The HUD score represents the highest stone the character has
-        // actually reached. A correct tap moves the engine ahead immediately,
-        // but the visible score waits until the landing finishes and the
-        // resolve state closes. Falling back never lowers this value.
-        if engine.state != .resolving {
+        // The HUD score represents trophies that have physically reached it.
+        // A correct landing can open the next sum while its trophy is still in
+        // flight, so a pending reward keeps the old visible score in place.
+        if pendingScoreRewards.isEmpty {
             highestStep = engine.highestStep
         }
         selectedOptionID = engine.selectedOptionID

@@ -12,30 +12,21 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The game's currency. A player collects nuts: in the reef, on the menu
-/// totals, on the level cards and in the shop. One glyph, used everywhere, so
-/// the same thing is never drawn two ways.
+/// The game's currency. Every character collects the same trophy: on a correct
+/// landing, on the menu totals, on the level cards and in the shop. One glyph,
+/// used everywhere, so the same thing is never drawn two ways.
 enum Currency {
-    static let icon = "currency_nut"
+    static let icon = "trophy.fill"
 }
 
-/// The artwork used anywhere a nut count is shown. The source PNG is
-/// rendered as a template so it keeps following each character's theme color.
+/// The trophy used anywhere a score is shown. It is the same symbol for every
+/// character and takes its colour from the surrounding foreground style.
 struct CurrencyIcon: View {
     let size: CGFloat
 
-    /// The source artwork contains generous transparent breathing room. Keep
-    /// the requested layout footprint stable for counters and flight anchors,
-    /// while making the visible nut comfortably larger everywhere it appears.
-    private let artworkScale: CGFloat = 1.86
-
     var body: some View {
-        Image(Currency.icon)
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .scaleEffect(artworkScale)
+        Image(systemName: Currency.icon)
+            .font(.system(size: size, weight: .regular))
             .frame(width: size, height: size)
     }
 }
@@ -170,6 +161,16 @@ struct AnimalCharacter: Identifiable, Equatable {
     /// renders any character at the same apparent size.
     var imageName: String { hanging.mainImageName }
 
+    /// A standalone, menu-friendly portrait when one has been supplied for
+    /// this animal. Keep this mapping explicit: the portrait numbering is
+    /// independent from both the catalog slot and the hanging-layer prefix.
+    var menuPortraitImageName: String? {
+        switch id {
+        case "dog": "1"
+        default: nil
+        }
+    }
+
     /// Layer names, arm pivots and grab reach for the hanging / claw artwork.
     var hanging: HangingCharacterRig { HangingCharacterRig.forID(id) }
     var artwork: Image {
@@ -194,6 +195,44 @@ struct AnimalCharacter: Identifiable, Equatable {
     /// ("character.fox", "character.frog", …).
     var localizedName: String {
         L(key: "character.\(id)")
+    }
+}
+
+/// Uses the standalone portrait where one exists, while allowing each screen
+/// to retain its current artwork until that animal receives a portrait too.
+/// Supplying the rendered point size also lets the image cache decode a small
+/// header icon and a large Premium hero at appropriate resolutions.
+struct CharacterMenuPortrait<Fallback: View>: View {
+    let character: AnimalCharacter
+    let side: CGFloat
+    private let fallback: Fallback
+
+    init(character: AnimalCharacter,
+         side: CGFloat,
+         @ViewBuilder fallback: () -> Fallback) {
+        self.character = character
+        self.side = side
+        self.fallback = fallback()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let imageName = character.menuPortraitImageName {
+#if canImport(UIKit)
+            Image(uiImage: CharacterArtworkCache.thumbnail(named: imageName, side: side))
+                .resizable()
+                .scaledToFit()
+                .frame(width: side, height: side)
+#else
+            Image(imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: side, height: side)
+#endif
+        } else {
+            fallback
+                .frame(width: side, height: side)
+        }
     }
 }
 
@@ -312,16 +351,6 @@ struct HooklessCharacterArtwork: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .aspectRatio(1, contentMode: .fit)
-    }
-}
-
-/// Just the mechanical hook of the selected hanging animal, empty — no body.
-struct EmptyClawArtwork: View {
-    let character: AnimalCharacter
-
-    var body: some View {
-        hangingLayer(character.hanging.claw)
-            .aspectRatio(1, contentMode: .fit)
     }
 }
 
@@ -504,13 +533,23 @@ enum CharacterUnlockStore {
     }
 
     static func canUse(characterID: String, isPremium: Bool) -> Bool {
-        CharacterUnlocks.isUnlocked(characterID: characterID,
-                                    totalCards: totalCards,
-                                    isPremium: isPremium)
+        if GameSettings.allCharactersUnlockedForSelfTest { return true }
+        return CharacterUnlocks.isUnlocked(characterID: characterID,
+                                           totalCards: totalCards,
+                                           isPremium: isPremium)
+    }
+
+    static var selfTestUnlocksAll: Bool {
+        GameSettings.allCharactersUnlockedForSelfTest
+    }
+
+    static func unlockAllForSelfTest() {
+        GameSettings.allCharactersUnlockedForSelfTest = true
     }
 
     /// The next animal still to be earned, for the home screen and reminders.
     static func nextMilestone() -> (character: AnimalCharacter, remaining: Int)? {
+        guard !selfTestUnlocksAll else { return nil }
         guard let next = CharacterUnlocks.nextMilestone(totalCards: totalCards) else { return nil }
         return (CharacterCatalog.character(id: next.characterID), next.remaining)
     }

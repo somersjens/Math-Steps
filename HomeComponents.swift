@@ -473,7 +473,7 @@ struct LevelCardView: View {
 
     /// During a return animation the score still starts at its old value. Keep
     /// every score-coloured detail in that old tier too; otherwise a maxed
-    /// nut turns green before its number has actually reached the maximum.
+    /// trophy turns green before its number has actually reached the maximum.
     private var displayedTier: Tier {
         guard isNewMaximumCelebration, !completionRevealed else { return tier }
         return tier(for: celebrationStart ?? best)
@@ -488,8 +488,8 @@ struct LevelCardView: View {
     }
 
     /// A level that crosses its maximum on this return stays in its ordinary
-    /// card until the nuts have finished counting. Only then do the gold
-    /// card, crown and empty hook arrive together.
+    /// card until the trophies have finished counting. Only then do the gold
+    /// card, crown and laurels arrive together.
     private var isNewMaximumCelebration: Bool {
         celebrationStartedAt != nil && (celebrationStart ?? best) < maximum && best >= maximum
     }
@@ -637,8 +637,8 @@ struct LevelCardView: View {
         }
     }
 
-    /// The score, with its nut after the number — the way a count is read
-    /// aloud ("twelve nuts"), not the way a price is written.
+    /// The score, with its trophy after the number — the way a count is read
+    /// aloud ("twelve trophies"), not the way a price is written.
     private var cardChip: some View {
         HStack(spacing: 3 * cardScale) {
             CountingNumber(from: celebrationStart ?? best,
@@ -759,7 +759,7 @@ struct LevelCardView: View {
                         .font(.system(size: 12 * cardScale, weight: .bold))
                     CurrencyIcon(size: 9 * cardScale)
                         // Once the max card has been revealed, the flight must
-                        // still start on this exact nut. Without an anchor
+                        // still start on this exact trophy. Without an anchor
                         // here the standard card's disappearing glyph leaves
                         // the return animation with no source point.
                         .background {
@@ -798,6 +798,21 @@ struct LevelCardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(8 * cardScale)
+
+            // Laurel branches flank the number on every completed card, the
+            // same mark Jumping Fox uses for a maximum score.
+            HStack {
+                Image(systemName: "laurel.leading")
+                Spacer()
+                Image(systemName: "laurel.trailing")
+            }
+            .font(.system(size: 30 * cardScale, weight: .regular))
+            .foregroundStyle(metal.opacity(0.55))
+            // iPad cards are wider as well as taller; pull the laurels in
+            // so they sit beside the number instead of on the outer edge.
+            .padding(.horizontal, cardScale > 1.15 ? 12 * cardScale : 3)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .background(
             LinearGradient(colors: [Color(red: 1.0, green: 0.96, blue: 0.85),
@@ -809,34 +824,11 @@ struct LevelCardView: View {
             RoundedRectangle(cornerRadius: 18 * cardScale)
                 .stroke(metal, lineWidth: 2.5 * cardScale)
         )
-        .overlay {
-            completedHookDecoration(metal: metal)
-                .clipShape(RoundedRectangle(cornerRadius: 18 * cardScale, style: .continuous))
-        }
         .overlay(alignment: .top) {
             completedRibbon(fill: hero, crown: metal)
                 .offset(y: -9 * cardScale)
         }
         .shadow(color: metal.opacity(0.35), radius: 6, y: 3)
-    }
-
-    /// The selected animal's empty hook hangs from the leading-top corner,
-    /// with a short rope and a few gold sparkles. Leading/trailing placement
-    /// turns over with Arabic so the hook never sits on the trailing edge.
-    private func completedHookDecoration(metal: Color) -> some View {
-        CompletionHookDecoration(
-            character: theme,
-            metal: metal,
-            cardScale: cardScale,
-            revealStartedAt: decorationRevealStartedAt
-        )
-    }
-
-    /// The completed card is inserted at this exact instant. Giving the hook
-    /// the shared timestamp keeps the rope, claw and sparkles synchronized.
-    private var decorationRevealStartedAt: Date? {
-        guard isNewMaximumCelebration, let celebrationStartedAt else { return nil }
-        return celebrationStartedAt.addingTimeInterval(Self.scoreCountDelay + Self.scoreCountDuration)
     }
 
     /// A small ribbon overlapping the top edge, carrying the crown. The ribbon
@@ -876,172 +868,6 @@ struct LevelCardView: View {
             .accessibilityLabel(Text(verbatim: isCapped
                 ? L("menu.maximumCount")
                 : L("menu.maximumCount.accessibility \(maxCompletions)")))
-    }
-}
-
-/// The empty mechanical hook of the selected animal, a short rope, and a few
-/// gold sparkles. Already-maxed cards draw once; only a freshly completed
-/// card spends frames on the drop-in, which matters with dozens of maxed
-/// levels on screen.
-private struct CompletionHookDecoration: View {
-    let character: AnimalCharacter
-    let metal: Color
-    let cardScale: CGFloat
-    /// Nil means this is an already-completed card and should render fully.
-    let revealStartedAt: Date?
-
-    @Environment(\.layoutDirection) private var layoutDirection
-
-    var body: some View {
-        Group {
-            if let revealStartedAt {
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                    canvas(progress: revealProgress(
-                        at: max(0, context.date.timeIntervalSince(revealStartedAt))))
-                }
-            } else {
-                canvas(progress: 1)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func canvas(progress: CGFloat) -> some View {
-        ZStack {
-            hookCluster(progress: progress)
-                .scaleEffect(x: layoutDirection == .rightToLeft ? -1 : 1, y: 1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.leading, 12 * cardScale)
-                .padding(.top, 2 * cardScale)
-
-            CompletionSparkle(size: 7 * cardScale, color: metal)
-                .modifier(CompletionSparklePop(progress: starProgress(0, at: progress)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.leading, 16 * cardScale)
-                .padding(.top, 52 * cardScale)
-
-            CompletionSparkle(size: 9 * cardScale, color: metal)
-                .modifier(CompletionSparklePop(progress: starProgress(1, at: progress)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.trailing, 17 * cardScale)
-                .padding(.top, 22 * cardScale)
-
-            CompletionSparkle(size: 6.5 * cardScale, color: metal)
-                .modifier(CompletionSparklePop(progress: starProgress(2, at: progress)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.trailing, 13 * cardScale)
-                .padding(.top, 42 * cardScale)
-        }
-    }
-
-    private func hookCluster(progress: CGFloat) -> some View {
-        // Rope and claw travel as one rig. Growing the stroke independently
-        // left a gap under a short rope, while the claw faded in from below.
-        let drop = min(1, max(0, progress / 0.52))
-        let eased = 1 - (1 - drop) * (1 - drop) * (1 - drop)
-        // Every hanging claw lives in the top-centre ~40% of its 768² canvas.
-        // Crop to that window so the open pincers stay whole on a 96-pt card.
-        let windowWidth = 22.8 * cardScale
-        let windowHeight = 25.2 * cardScale
-        let canvas = 52.8 * cardScale
-        let travel = 54 * cardScale
-        return VStack(spacing: -1.5 * cardScale) {
-            CompletionHookRope(progress: 1)
-                .stroke(
-                    LinearGradient(
-                        colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
-                                 Color(red: 0.22, green: 0.14, blue: 0.08)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    style: StrokeStyle(lineWidth: 1.3 * cardScale, lineCap: .round)
-                )
-                .frame(width: 8 * cardScale, height: 25 * cardScale)
-
-            EmptyClawArtwork(character: character)
-                .frame(width: canvas, height: canvas)
-                .frame(width: windowWidth, height: windowHeight, alignment: .top)
-                .clipped()
-        }
-        .frame(width: windowWidth, alignment: .top)
-        .offset(y: (1 - eased) * -travel)
-    }
-
-    private func revealProgress(at elapsed: TimeInterval) -> CGFloat {
-        CGFloat(min(1, elapsed / 0.72))
-    }
-
-    private func starProgress(_ index: Int, at progress: CGFloat) -> CGFloat {
-        let delay = 0.38 + CGFloat(index) * 0.10
-        let raw = min(1, max(0, (progress - delay) / 0.22))
-        let c1 = 1.70158
-        let c3 = c1 + 1
-        return 1 + c3 * pow(raw - 1, 3) + c1 * pow(raw - 1, 2)
-    }
-}
-
-private struct CompletionSparklePop: ViewModifier {
-    let progress: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(max(0, progress))
-            .opacity(Double(min(1, max(0, progress))))
-    }
-}
-
-private struct CompletionSparkle: View {
-    let size: CGFloat
-    let color: Color
-
-    var body: some View {
-        SparkleShape()
-            .fill(color)
-            .frame(width: size, height: size)
-    }
-}
-
-/// A four-pointed sparkle drawn as a path so it stays crisp at the tiny
-/// size a level card can spare. The system `sparkle` glyph goes muddy here.
-private struct SparkleShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let cx = rect.midX
-        let cy = rect.midY
-        let inner = min(rect.width, rect.height) * 0.15
-        var path = Path()
-        path.move(to: CGPoint(x: cx, y: rect.minY))
-        path.addLine(to: CGPoint(x: cx + inner, y: cy - inner))
-        path.addLine(to: CGPoint(x: rect.maxX, y: cy))
-        path.addLine(to: CGPoint(x: cx + inner, y: cy + inner))
-        path.addLine(to: CGPoint(x: cx, y: rect.maxY))
-        path.addLine(to: CGPoint(x: cx - inner, y: cy + inner))
-        path.addLine(to: CGPoint(x: rect.minX, y: cy))
-        path.addLine(to: CGPoint(x: cx - inner, y: cy - inner))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct CompletionHookRope: Shape {
-    var progress: CGFloat
-
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        let length = rect.height * max(0, min(1, progress))
-        let endY = rect.minY + length
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.midX, y: endY),
-            control: CGPoint(x: rect.midX + rect.width * 0.22,
-                             y: rect.minY + length * 0.5)
-        )
-        return path
     }
 }
 

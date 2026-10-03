@@ -62,7 +62,7 @@ struct MathStepsPlayfield: View {
     /// Advances only the small sprite view. Keeping authored frame changes out
     /// of this parent prevents them from interrupting an in-flight camera and
     /// answer-label animation.
-    @State private var dogAnimationID = 0
+    @State private var characterAnimationID = 0
     @State private var jumpProgress: CGFloat = 0
     @State private var jumpDestinationX: CGFloat = 0
     @State private var jumpDestinationY: CGFloat = 0
@@ -91,6 +91,9 @@ struct MathStepsPlayfield: View {
     @State private var shatterProgress: CGFloat = 0
     @State private var rewardVisible = false
     @State private var rewardFlightProgress: CGFloat = 0
+    /// Half again as long as the original flight, so the trophy stays readable
+    /// on its way to the score. The score ticks at the same moment it arrives.
+    private var rewardFlightDuration: Double { reduceMotion ? 0.24 : 1.17 }
     @State private var rewardSource = CGPoint.zero
     /// Absolute route position while the camera travels back after a fall.
     /// Nil during normal play; zero means the starting platform is reached.
@@ -163,9 +166,16 @@ struct MathStepsPlayfield: View {
             let layout = StepCourseLayout(size: proxy.size,
                                           isPad: isPad,
                                           bottomReserve: bottomReserve)
-            let characterSize = character.id == "dog"
+            let characterSize = StepCharacterSprite.hasAnimation(for: character)
                 ? layout.dogSize
                 : layout.dogSize / 1.5
+            // Each authored square canvas leaves a different amount of room
+            // below the feet. Normalise that transparent padding so every
+            // idle pose meets the same world-space contact shadow.
+            let characterGroundingAdjustment = characterSize
+                * StepCharacterAnimation.groundingOffsetRatio(
+                    for: character.id
+                )
             let characterFootprint = StepCharacterFootprint(
                 character: character,
                 renderedSide: characterSize
@@ -269,7 +279,8 @@ struct MathStepsPlayfield: View {
                     .rotationEffect(.degrees(dogRotation))
                     .opacity(dogOpacity)
                     .position(x: layout.size.width / 2 + dogX,
-                              y: layout.baseY - characterSize * 0.43 + dogY)
+                              y: layout.baseY - characterSize * 0.43 + dogY
+                                + characterGroundingAdjustment)
                     .modifier(StepJumpArcModifier(progress: jumpProgress,
                                                   destinationX: jumpDestinationX,
                                                   destinationY: jumpDestinationY,
@@ -310,7 +321,14 @@ struct MathStepsPlayfield: View {
                 // piece of the starting deck. It disappears only when that
                 // deck itself is replaced by the first completed step.
                 if liftPlatformVisible, landedRound == nil {
-                    StepLiftPlatform(character: character, isPad: isPad)
+                    StepLiftPlatform(
+                        character: character,
+                        isPad: isPad,
+                        deckSize: CGSize(width: layout.deckWidth,
+                                         height: layout.deckHeight),
+                        offsetY: layout.deckHeight
+                            * StepStartDeckMetrics.hatchVerticalOffsetRatio
+                    )
                         .frame(width: layout.liftSize,
                                height: layout.liftHeight)
                         .scaleEffect(1 + renderedCameraPhase * 0.08)
@@ -380,7 +398,7 @@ struct MathStepsPlayfield: View {
                 // seven jump frames away from the main actor so opening the
                 // level and animating its start card stay responsive.
                 Task.detached(priority: .utility) {
-                    StepDogSpriteCache.prewarm()
+                    StepCharacterSpriteCache.prewarm(characterID: character.id)
                 }
 #endif
                 restoreLandingIfNeeded(layout: layout)
@@ -623,9 +641,10 @@ struct MathStepsPlayfield: View {
 
     private var characterBack: some View {
         Group {
-            if character.id == "dog" {
-                StepDogSprite(animationID: dogAnimationID,
-                              reduceMotion: reduceMotion)
+            if StepCharacterSprite.hasAnimation(for: character) {
+                StepCharacterSprite(character: character,
+                                    animationID: characterAnimationID,
+                                    reduceMotion: reduceMotion)
             } else {
                 HooklessCharacterArtwork(character: character)
             }
@@ -656,7 +675,7 @@ struct MathStepsPlayfield: View {
 
         animationToken &+= 1
         let token = animationToken
-        animateDogJump(token: token)
+        animateCharacterJump(token: token)
 
         if option.isCorrect {
             playCorrectJump(toLane: lane,
@@ -672,15 +691,17 @@ struct MathStepsPlayfield: View {
         }
     }
 
-    private func animateDogJump(token: Int) {
-        guard character.id == "dog", animationToken == token else { return }
-        dogAnimationID &+= 1
+    private func animateCharacterJump(token: Int) {
+        guard StepCharacterSprite.hasAnimation(for: character),
+              animationToken == token else { return }
+        characterAnimationID &+= 1
     }
 
     private func playCorrectJump(toLane lane: Int,
                                  token: Int,
                                  layout: StepCourseLayout,
                                  earnsNewHighestStep: Bool) {
+        let completesLevel = (round?.number ?? (currentStep + 1)) >= maximumSteps
         let jump = prepareAnswerJump(toLane: lane,
                                      fallsThrough: false,
                                      layout: layout)
@@ -723,7 +744,7 @@ struct MathStepsPlayfield: View {
                 }
                 if earnsNewHighestStep {
                     withAnimation(.timingCurve(0.22, 0.72, 0.22, 1,
-                                               duration: reduceMotion ? 0.16 : 0.78)) {
+                                               duration: rewardFlightDuration)) {
                         rewardFlightProgress = 1
                     }
                 }
@@ -734,11 +755,19 @@ struct MathStepsPlayfield: View {
             withAnimation(.easeOut(duration: reduceMotion ? 0.05 : 0.18)) {
                 currentRowNumbersMuted = true
             }
+            // Landing is the first honest frame on which the player can see
+            // that this tile was correct. Open the next sum on that same frame;
+            // the trophy may keep flying independently toward the score.
+            // The last answer still waits for that flight before starting the
+            // level-completion choreography, because there is no next sum.
+            if !completesLevel {
+                onCorrectLanding()
+            }
             if !earnsNewHighestStep {
                 onRewardArrived()
             }
             let scoreArrivalDelay = earnsNewHighestStep
-                ? (reduceMotion ? 0.16 : 0.78)
+                ? rewardFlightDuration
                 : (reduceMotion ? 0.01 : 0.04)
             DispatchQueue.main.asyncAfter(deadline: .now() + scoreArrivalDelay) {
                 guard animationToken == token else { return }
@@ -748,7 +777,9 @@ struct MathStepsPlayfield: View {
                         rewardVisible = false
                     }
                 }
-                onCorrectLanding()
+                if completesLevel {
+                    onCorrectLanding()
+                }
             }
             let settleDuration = earnsNewHighestStep
                 ? scoreArrivalDelay + 0.02
@@ -929,8 +960,8 @@ struct MathStepsPlayfield: View {
         // single object instead of appearing and moving in the same frame.
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.69 : 2.28)) {
             guard animationToken == token else { return }
-            withAnimation(.spring(response: reduceMotion ? 0.18 : 0.46,
-                                  dampingFraction: 0.76)) {
+            withAnimation(.timingCurve(0.20, 0.72, 0.24, 1,
+                                       duration: reduceMotion ? 0.18 : 0.46)) {
                 dogY = startPadDogY(layout: layout)
                 liftPlatformY = 0
             }
@@ -938,19 +969,19 @@ struct MathStepsPlayfield: View {
 
         // Only the platform changes layer at the top. The character has
         // remained in front of the deck throughout the complete ascent.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.83 : 2.68)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.87 : 2.74)) {
             guard animationToken == token else { return }
             liftPlatformAboveDeck = true
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.86 : 2.73)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.88 : 2.75)) {
             guard animationToken == token else { return }
             withAnimation(.easeInOut(duration: reduceMotion ? 0.08 : 0.18)) {
                 hatchOpen = false
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.88 : 2.82)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.90 : 2.84)) {
             guard animationToken == token else { return }
             withAnimation(.easeOut(duration: 0.16)) { restartMessageVisible = false }
             answerJumpInProgress = false
@@ -1080,8 +1111,8 @@ struct MathStepsPlayfield: View {
         // Let the sliding hatch finish opening before the platform rises.
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.04 : 0.18)) {
             guard animationToken == token else { return }
-            withAnimation(.spring(response: reduceMotion ? 0.18 : 0.58,
-                                  dampingFraction: 0.76)) {
+            withAnimation(.timingCurve(0.20, 0.72, 0.24, 1,
+                                       duration: reduceMotion ? 0.18 : 0.58)) {
                 dogY = startPadDogY(layout: layout)
                 liftPlatformY = 0
             }
@@ -1128,7 +1159,7 @@ struct MathStepsPlayfield: View {
         jumpDestinationY = targetDogY - dogY
         jumpLateralArc = -dogX * 0.06
         jumpHeight = layout.jumpHeight * 0.78
-        animateDogJump(token: token)
+        animateCharacterJump(token: token)
 
         // One final, readable jump from the last glass row onto the island.
         withAnimation(.timingCurve(0.24, 0.05, 0.24, 1,
@@ -1170,7 +1201,7 @@ struct MathStepsPlayfield: View {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.40 : 1.72)) {
             guard animationToken == token else { return }
-            animateDogJump(token: token)
+            animateCharacterJump(token: token)
             withAnimation(.timingCurve(0.24, 0.02, 0.26, 1,
                                        duration: reduceMotion ? 0.24 : 0.88)) {
                 dogY = -layout.size.height
@@ -1419,7 +1450,7 @@ private struct StepCorrectBurst: View, Animatable {
     }
 }
 
-/// The single nut awarded by a genuinely new high step. A quadratic path
+/// The single trophy awarded by a genuinely new high step. A quadratic path
 /// gives it a small celebratory lift before it accelerates into the HUD; no
 /// badge or extra label competes with the tile burst.
 private struct StepFlyingScoreNut: View, Animatable {
@@ -1454,15 +1485,11 @@ private struct StepFlyingScoreNut: View, Animatable {
             let size: CGFloat = isPad ? 34 : 24
 
             CurrencyIcon(size: size)
-                .foregroundStyle(
-                    LinearGradient(colors: [.white, Color.yellow, character.skyColor],
-                                   startPoint: .topLeading,
-                                   endPoint: .bottomTrailing)
-                )
+                .foregroundStyle(Color(red: 1.0, green: 0.78, blue: 0.05))
                 .rotationEffect(.degrees(Double(p) * 210))
                 .scaleEffect(1 + sin(.pi * p) * 0.24)
                 .position(point)
-                .shadow(color: character.deepColor.opacity(0.52), radius: 4, y: 3)
+                .shadow(color: .black.opacity(0.45), radius: 3, y: 2)
                 .opacity(Double(p < 0.98 ? 1 : max(0, (1 - p) / 0.02)))
         }
     }
@@ -1664,8 +1691,12 @@ private struct StepCourseLayout {
     /// A square floor plate seen in perspective: its projected depth is
     /// shorter than its width, while the corners stay straight rather than
     /// reading as the old oval iris.
-    var liftSize: CGFloat { deckHeight * 0.82 }
-    var liftHeight: CGFloat { deckHeight * 0.54 }
+    var liftSize: CGFloat {
+        liftHeight * StepStartDeckMetrics.hatchAspectRatio
+    }
+    var liftHeight: CGFloat {
+        deckHeight * StepStartDeckMetrics.hatchHeightRatio
+    }
     func liftCenterY(cameraPhase: CGFloat) -> CGFloat {
         y(at: -1 - cameraPhase) + deckHeight * 0.18
     }
@@ -1957,14 +1988,13 @@ private struct StepStartDeck: View {
             // This is a square opening in the deck's world plane. Perspective
             // compresses its depth, so its on-screen width is intentionally
             // larger than its height.
-            let hatchHeight = proxy.size.height * 0.54
-            let hatchWidth = hatchHeight * 1.52
-            let hatchOffset = proxy.size.height * 0.04
-            let deckGradient = LinearGradient(colors: [Color.white.opacity(0.95),
-                                                        Color(red: 0.35, green: 0.83, blue: 1.0),
-                                                        character.color.opacity(0.62)],
-                                               startPoint: .topLeading,
-                                               endPoint: .bottomTrailing)
+            let hatchHeight = proxy.size.height
+                * StepStartDeckMetrics.hatchHeightRatio
+            let hatchWidth = hatchHeight
+                * StepStartDeckMetrics.hatchAspectRatio
+            let hatchOffset = proxy.size.height
+                * StepStartDeckMetrics.hatchVerticalOffsetRatio
+            let deckGradient = stepDeckGradient(character: character)
             ZStack {
                 ZStack {
                     GlassPerspectiveShape(inset: 0.035)
@@ -1994,36 +2024,28 @@ private struct StepStartDeck: View {
                 // character is rendered between the deck's fixed rear and
                 // front sections, so it emerges without a layer jump.
                 .mask {
-                    StepDeckOpeningMask(isOpen: hatchOpen,
-                                        width: hatchWidth,
+                    StepDeckOpeningMask(width: hatchWidth,
                                         height: hatchHeight,
                                         offsetY: hatchOffset)
                 }
 
-                // One flush hatch slides sideways underneath the surrounding
-                // deck. Keeping it as the exact same shape as the opening
-                // prevents white flashes, split panels and stray side faces.
-                ZStack {
-                    GlassPerspectiveShape(inset: 0.11)
-                        .fill(LinearGradient(colors: [Color(red: 0.46, green: 0.87, blue: 1.0),
-                                                      Color(red: 0.27, green: 0.76, blue: 0.95),
-                                                      character.color.opacity(0.52)],
-                                             startPoint: .topLeading,
-                                             endPoint: .bottomTrailing))
-                        .offset(x: hatchOpen ? hatchWidth * 1.08 : 0)
-                }
-                .frame(width: hatchWidth, height: hatchHeight)
-                .clipShape(GlassPerspectiveShape(inset: 0.11))
-                .overlay {
-                    GlassPerspectiveShape(inset: 0.11)
-                        .stroke(Color(red: 0.04, green: 0.22, blue: 0.39)
-                                    .opacity(hatchOpen ? 0.70 : 0.34),
-                                lineWidth: isPad ? 3 : 2)
-                }
-                .offset(y: hatchOffset)
-                .animation(.timingCurve(0.30, 0.02, 0.20, 1,
-                                        duration: 0.30),
-                           value: hatchOpen)
+                // The opening is always a real cut-out; this is its sole
+                // surface. It uses the same world-aligned material as the
+                // surrounding deck, so neither opening nor closing adds a
+                // second translucent colour layer.
+                StepDeckSurface(character: character,
+                                isPad: isPad,
+                                deckSize: proxy.size,
+                                surfaceSize: CGSize(width: hatchWidth,
+                                                    height: hatchHeight),
+                                offsetY: hatchOffset)
+                    .offset(x: hatchOpen ? hatchWidth * 1.08 : 0)
+                    .frame(width: hatchWidth, height: hatchHeight)
+                    .clipShape(GlassPerspectiveShape(inset: 0.11))
+                    .offset(y: hatchOffset)
+                    .animation(.timingCurve(0.30, 0.02, 0.20, 1,
+                                            duration: 0.30),
+                               value: hatchOpen)
             }
         }
     }
@@ -2039,11 +2061,7 @@ private struct StepStartDeckForeground: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let deckGradient = LinearGradient(colors: [Color.white.opacity(0.95),
-                                                        Color(red: 0.35, green: 0.83, blue: 1.0),
-                                                        character.color.opacity(0.62)],
-                                               startPoint: .topLeading,
-                                               endPoint: .bottomTrailing)
+            let deckGradient = stepDeckGradient(character: character)
             ZStack {
                 GlassPerspectiveShape(inset: 0.035)
                     .fill(Color(red: 0.08, green: 0.37, blue: 0.60))
@@ -2066,7 +2084,6 @@ private struct StepStartDeckForeground: View {
 }
 
 private struct StepDeckOpeningMask: View {
-    let isOpen: Bool
     let width: CGFloat
     let height: CGFloat
     let offsetY: CGFloat
@@ -2074,13 +2091,11 @@ private struct StepDeckOpeningMask: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.white)
-            if isOpen {
-                GlassPerspectiveShape(inset: 0.11)
-                    .fill(.black)
-                    .frame(width: width, height: height)
-                    .offset(y: offsetY)
-                    .blendMode(.destinationOut)
-            }
+            GlassPerspectiveShape(inset: 0.11)
+                .fill(.black)
+                .frame(width: width, height: height)
+                .offset(y: offsetY)
+                .blendMode(.destinationOut)
         }
         .compositingGroup()
     }
@@ -2089,20 +2104,87 @@ private struct StepDeckOpeningMask: View {
 private struct StepLiftPlatform: View {
     let character: AnimalCharacter
     let isPad: Bool
+    let deckSize: CGSize
+    let offsetY: CGFloat
 
     var body: some View {
-        GlassPerspectiveShape(inset: 0.11)
-            .fill(LinearGradient(colors: [Color(red: 0.52, green: 0.89, blue: 1.0),
-                                          Color(red: 0.30, green: 0.80, blue: 0.98),
-                                          character.color.opacity(0.56)],
-                                 startPoint: .topLeading,
-                                 endPoint: .bottomTrailing))
-            .overlay {
-                GlassPerspectiveShape(inset: 0.11)
-                    .stroke(Color(red: 0.04, green: 0.22, blue: 0.39).opacity(0.55),
-                            lineWidth: isPad ? 2.5 : 1.5)
-            }
+        GeometryReader { proxy in
+            StepDeckSurface(character: character,
+                            isPad: isPad,
+                            deckSize: deckSize,
+                            surfaceSize: proxy.size,
+                            offsetY: offsetY)
+        }
     }
+}
+
+private struct StepDeckSurface: View {
+    let character: AnimalCharacter
+    let isPad: Bool
+    let deckSize: CGSize
+    let surfaceSize: CGSize
+    let offsetY: CGFloat
+
+    var body: some View {
+        let shape = GlassPerspectiveShape(inset: 0.11)
+        ZStack {
+            // Reproduce both layers of the deck material. The gradient is
+            // translucent, so using it alone would blend against the shaft
+            // instead of matching the surrounding floor.
+            shape.fill(Color(red: 0.08, green: 0.37, blue: 0.60))
+            shape.fill(stepDeckGradient(character: character,
+                                        deckSize: deckSize,
+                                        surfaceSize: surfaceSize,
+                                        surfaceOffsetY: offsetY))
+        }
+        .overlay {
+            shape.stroke(Color(red: 0.04, green: 0.22, blue: 0.39).opacity(0.55),
+                         lineWidth: isPad ? 2.5 : 1.5)
+        }
+        // This shadow is part of the surface from the first ascent frame. It
+        // no longer appears only when the platform changes layer at the top.
+        .shadow(color: Color(red: 0.03, green: 0.20, blue: 0.44).opacity(0.28),
+                radius: isPad ? 4 : 3,
+                y: isPad ? 3 : 2)
+    }
+}
+
+private enum StepStartDeckMetrics {
+    static let hatchHeightRatio: CGFloat = 0.54
+    static let hatchAspectRatio: CGFloat = 1.52
+    static let hatchVerticalOffsetRatio: CGFloat = 0.04
+}
+
+private func stepDeckGradient(character: AnimalCharacter,
+                              startPoint: UnitPoint = .topLeading,
+                              endPoint: UnitPoint = .bottomTrailing) -> LinearGradient {
+    LinearGradient(colors: [Color.white.opacity(0.95),
+                            Color(red: 0.35, green: 0.83, blue: 1.0),
+                            character.color.opacity(0.62)],
+                   startPoint: startPoint,
+                   endPoint: endPoint)
+}
+
+/// Maps the full-deck gradient through the hatch's local coordinate space.
+/// At its final position every interior pixel therefore continues the deck's
+/// colour field instead of restarting a second gradient at the hatch edge.
+private func stepDeckGradient(character: AnimalCharacter,
+                              deckSize: CGSize,
+                              surfaceSize: CGSize,
+                              surfaceOffsetY: CGFloat) -> LinearGradient {
+    guard surfaceSize.width > 0, surfaceSize.height > 0 else {
+        return stepDeckGradient(character: character)
+    }
+    let originX = (deckSize.width - surfaceSize.width) * 0.5
+    let originY = (deckSize.height - surfaceSize.height) * 0.5
+        + surfaceOffsetY
+    return stepDeckGradient(
+        character: character,
+        startPoint: UnitPoint(x: -originX / surfaceSize.width,
+                              y: -originY / surfaceSize.height),
+        endPoint: UnitPoint(x: (deckSize.width - originX) / surfaceSize.width,
+                            y: (deckSize.height - originY) / surfaceSize.height)
+    )
 }
 
 private struct StepGoalIsland: View {
@@ -3339,7 +3421,8 @@ private struct GlassCracks: Shape {
     }
 }
 
-private struct StepDogSprite: View {
+private struct StepCharacterSprite: View {
+    let character: AnimalCharacter
     let animationID: Int
     let reduceMotion: Bool
 
@@ -3351,65 +3434,131 @@ private struct StepDogSprite: View {
             .onChange(of: animationID) { _, _ in
                 playJumpFrames()
             }
+            .onChange(of: character.id) { _, _ in
+                playbackGeneration &+= 1
+                frame = 1
+            }
     }
 
     @ViewBuilder
     private var sprite: some View {
 #if canImport(UIKit)
-        Image(uiImage: StepDogSpriteCache.image(frame: frame))
+        Image(uiImage: StepCharacterSpriteCache.image(characterID: character.id,
+                                                      frame: frame))
             .resizable()
             .scaledToFit()
-            .id(frame)
+            .id("\(character.id)-\(frame)")
 #else
-        Image("1.\(min(max(frame, 1), 8))")
+        Image("\(StepCharacterAnimation.assetPrefix(for: character.id) ?? 1).\(min(max(frame, 1), 8))")
             .resizable()
             .scaledToFit()
-            .id(frame)
+            .id("\(character.id)-\(frame)")
 #endif
+    }
+
+    static func hasAnimation(for character: AnimalCharacter) -> Bool {
+        StepCharacterAnimation.assetPrefix(for: character.id) != nil
     }
 
     private func playJumpFrames() {
         playbackGeneration &+= 1
         let generation = playbackGeneration
-        let timeline: [(frame: Int, time: Double)] = reduceMotion
-            ? [(2, 0), (4, 0.04), (6, 0.08), (8, 0.12), (1, 0.17)]
-            : [(2, 0), (3, 0.08), (4, 0.17), (5, 0.28),
-               (6, 0.40), (7, 0.51), (8, 0.60), (1, 0.70)]
-        for cue in timeline {
-            DispatchQueue.main.asyncAfter(deadline: .now() + cue.time) {
+        let fullSequence = StepCharacterAnimation.jumpFrames(for: character.id)
+        let frames = reduceMotion
+            ? [fullSequence[0], fullSequence[2], fullSequence[4],
+               fullSequence[6], fullSequence[7]]
+            : fullSequence
+        let times: [Double] = reduceMotion
+            ? [0, 0.04, 0.08, 0.12, 0.17]
+            : [0, 0.08, 0.17, 0.28, 0.40, 0.51, 0.60, 0.70]
+        for cue in zip(frames, times) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + cue.1) {
                 guard playbackGeneration == generation else { return }
-                frame = cue.frame
+                frame = cue.0
             }
         }
     }
 }
 
-#if canImport(UIKit)
-nonisolated private enum StepDogSpriteCache {
-    private static let lock = NSLock()
-    private static var images: [Int: UIImage] = [:]
+nonisolated private enum StepCharacterAnimation {
+    static func assetPrefix(for characterID: String) -> Int? {
+        switch characterID {
+        case "dog": 1
+        case "lion": 2
+        case "octopus": 3
+        case "crab": 4
+        case "elephant": 5
+        case "bear": 6
+        case "fox": 7
+        case "frog": 8
+        case "penguin": 9
+        case "bunny": 10
+        default: nil
+        }
+    }
 
-    static func image(frame: Int) -> UIImage {
+    /// Offsets are measured from each idle sprite's alpha bounds against a
+    /// shared ground-contact line at 93% of its square canvas.
+    static func groundingOffsetRatio(for characterID: String) -> CGFloat {
+        switch characterID {
+        case "dog": 0.006
+        case "lion": -0.017
+        case "octopus": -0.002
+        case "crab": 0.037
+        case "elephant": 0.017
+        case "bear": 0.025
+        case "fox": -0.026
+        case "frog": -0.018
+        case "penguin": -0.033
+        case "bunny": -0.014
+        default: 0
+        }
+    }
+
+    /// Sprite sets with out-of-order filenames get an explicit pose sequence:
+    /// anticipation, compression, take-off, flight, landing and recovery,
+    /// followed by the idle frame.
+    static func jumpFrames(for characterID: String) -> [Int] {
+        switch characterID {
+        case "lion": [4, 2, 3, 5, 6, 7, 8, 1]
+        case "elephant": [4, 6, 5, 7, 2, 8, 3, 1]
+        default: [2, 3, 4, 5, 6, 7, 8, 1]
+        }
+    }
+}
+
+#if canImport(UIKit)
+nonisolated private enum StepCharacterSpriteCache {
+    private static let lock = NSLock()
+    private static var images: [String: UIImage] = [:]
+
+    static func image(characterID: String, frame: Int) -> UIImage {
         let frame = min(max(frame, 1), 8)
+        guard let prefix = StepCharacterAnimation.assetPrefix(for: characterID) else {
+            assertionFailure("Missing step animation for \(characterID)")
+            return UIImage()
+        }
+        let name = "\(prefix).\(frame)"
         lock.lock()
-        if let cached = images[frame] {
+        if let cached = images[name] {
             lock.unlock()
             return cached
         }
         lock.unlock()
 
-        // The on-screen dog is at most 285pt. A 720px prepared image keeps the
-        // authored fur crisp on Retina screens without uploading all eight
-        // original 1254px canvases during every jump.
-        let prepared = DisplayPreparedImage.make(named: "1.\(frame)", maxPixel: 720)
+        // The on-screen character is at most 285pt. A 720px prepared image
+        // keeps the authored fur crisp on Retina screens without uploading all
+        // eight original 1254px canvases during every jump.
+        let prepared = DisplayPreparedImage.make(named: name, maxPixel: 720)
         lock.lock()
-        images[frame] = prepared
+        images[name] = prepared
         lock.unlock()
         return prepared
     }
 
-    static func prewarm() {
-        for frame in 1...8 { _ = image(frame: frame) }
+    static func prewarm(characterID: String) {
+        guard StepCharacterAnimation.assetPrefix(for: characterID) != nil else { return }
+        for frame in 1...8 { _ = image(characterID: characterID, frame: frame) }
     }
 }
 #endif

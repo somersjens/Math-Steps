@@ -318,7 +318,7 @@ struct GameView: View {
             let scoreIconWidth: CGFloat = isPad ? 23 : 16
             let scoreHorizontalPadding: CGFloat = isPad ? 14 : 10
             let scoreTarget = CGPoint(
-                // Match the leading paw frame inside `ClawScoreBadge`, rather
+                // Match the leading trophy frame inside `ClawScoreBadge`, rather
                 // than aiming at the centre of the complete score capsule.
                 x: proxy.size.width - horizontalHUDPadding - hudMetricWidth
                     + scoreHorizontalPadding + scoreIconWidth / 2,
@@ -603,7 +603,7 @@ private struct ClawScoreBadge: View {
 
     var body: some View {
         HStack(spacing: isPad ? 9 : 6) {
-            Image(systemName: "pawprint.fill")
+            Image(systemName: Currency.icon)
                 .font(.system(size: iconWidth, weight: .black))
                 .foregroundStyle(.white)
                 .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.38),

@@ -90,9 +90,9 @@ struct OnboardingView: View {
                     }
                     .scrollBounceBehavior(.basedOnSize)
 
-                    OnboardingHangingElephant(character: welcomeCharacter,
-                                              step: step,
-                                              isPad: isPad)
+                    OnboardingCharacterPortrait(character: welcomeCharacter,
+                                                step: step,
+                                                isPad: isPad)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
@@ -388,9 +388,9 @@ struct OnboardingView: View {
     }
 }
 
-/// The same suspended elephant language as the claw game, but staged across
-/// the three welcome screens: medium height, pulled up, then lowered again.
-private struct OnboardingHangingElephant: View {
+/// The welcome character, staged across the three welcome screens: medium
+/// height, pulled up, then lowered again.
+private struct OnboardingCharacterPortrait: View {
     let character: AnimalCharacter
     let step: Int
     let isPad: Bool
@@ -416,23 +416,12 @@ private struct OnboardingHangingElephant: View {
                 y: cos(radians) * ropeLength
             )
 
-            ZStack(alignment: .topLeading) {
-                OnboardingRopeShape(hook: hook)
-                    .stroke(
-                        LinearGradient(colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
-                                                Color(red: 0.22, green: 0.14, blue: 0.08)],
-                                       startPoint: .top, endPoint: .bottom),
-                        style: StrokeStyle(lineWidth: isPad ? 6 : 4.5, lineCap: .round)
-                    )
-                    .frame(width: proxy.size.width, height: max(4, ropeLength + 8))
-                    .shadow(color: .black.opacity(0.24), radius: 1, x: 1, y: 1)
-
+            CharacterMenuPortrait(character: character, side: side) {
                 HangingCharacterArtwork(character: character)
-                    .frame(width: side, height: side)
-                    .rotationEffect(.degrees(angle), anchor: .top)
-                    .position(x: hook.x, y: hook.y + side / 2)
             }
-            .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
+                .rotationEffect(.degrees(angle), anchor: .top)
+                .position(x: hook.x, y: hook.y + side / 2)
+                .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
         }
         .onAppear {
             guard !reduceMotion else { return }
@@ -442,30 +431,6 @@ private struct OnboardingHangingElephant: View {
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
-    }
-}
-
-private struct OnboardingRopeShape: Shape {
-    var hook: CGPoint
-
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(hook.x, hook.y) }
-        set { hook = CGPoint(x: newValue.first, y: newValue.second) }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let start = CGPoint(x: rect.midX, y: rect.minY)
-        let end = hook
-        let dx = end.x - start.x
-        let dy = max(1, end.y - start.y)
-        path.move(to: start)
-        path.addCurve(
-            to: end,
-            control1: CGPoint(x: start.x + dx * 0.16, y: start.y + dy * 0.34),
-            control2: CGPoint(x: start.x + dx * 0.68, y: start.y + dy * 0.76)
-        )
-        return path
     }
 }
 

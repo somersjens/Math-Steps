@@ -60,6 +60,10 @@ enum GameSettings {
     }
     static let spokenSumsEnabledKey = ProgressStore.Key.spokenSumsEnabled
     static let premiumCacheKey = ProgressStore.Key.premiumCache
+    /// Device-local escape hatch used by the hidden home-screen self-test.
+    /// It unlocks characters only; StoreKit-owned Premium features remain
+    /// governed by the real entitlement.
+    static let allCharactersUnlockedForSelfTestKey = "characters.selfTestUnlockAll"
 
     /// Master switch for reading sums aloud. Lexicons, the synthesizer path
     /// and `speakQuestion` stay in the binary; set this to `true` to show the
@@ -106,5 +110,10 @@ enum GameSettings {
     static var premiumUnlockedCache: Bool {
         get { Progress.store.isPremiumCached }
         set { Progress.store.isPremiumCached = newValue }
+    }
+
+    static var allCharactersUnlockedForSelfTest: Bool {
+        get { storedBool(allCharactersUnlockedForSelfTestKey, default: false) }
+        set { UserDefaults.standard.set(newValue, forKey: allCharactersUnlockedForSelfTestKey) }
     }
 }

@@ -161,7 +161,7 @@ struct SettingsView: View {
             HStack {
                 Text("settings.character")
                     .font(.headline)
-                if !premium.isPremium {
+                if !premium.isPremium && !CharacterUnlockStore.selfTestUnlocksAll {
                     Image(systemName: "lock.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)

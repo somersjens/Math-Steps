@@ -88,24 +88,6 @@ struct PremiumView: View {
                     .zIndex(10)
             }
         }
-        // Resolve the hero anchor in a background layer so the character's
-        // black socket is composited over the rope, not under it.
-        .backgroundPreferenceValue(PremiumCharacterAnchorKey.self) { anchor in
-            GeometryReader { proxy in
-                if let anchor {
-                    let frame = proxy[anchor]
-                    let ropeWidth: CGFloat = isPad ? 5.5 : 4.25
-                    MenuHangingRope(
-                        endPoint: CGPoint(x: frame.midX,
-                                          // A slight overlap hides the PNG's
-                                          // transparent antialiasing at its top.
-                                          y: frame.minY + 1.5),
-                        lineWidth: ropeWidth
-                    )
-                }
-            }
-            .ignoresSafeArea()
-        }
         .background {
             ClawMachineBackground(character: character)
         }
@@ -236,15 +218,14 @@ struct PremiumView: View {
                     Circle()
                         .stroke(character.color.opacity(0.30), lineWidth: 2)
                         .frame(width: heroSize * 0.92, height: heroSize * 0.92)
-                    character.artwork
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: heroSize * 0.88, height: heroSize * 0.88)
-                        .anchorPreference(key: PremiumCharacterAnchorKey.self,
-                                          value: .bounds) { $0 }
-                        .shadow(color: character.deepColor.opacity(0.25), radius: 14, y: 8)
-                        .id(previewCharacterID)
-                        .transition(.scale.combined(with: .opacity))
+                    CharacterMenuPortrait(character: character, side: heroSize * 0.88) {
+                        character.artwork
+                            .resizable()
+                            .scaledToFit()
+                    }
+                    .shadow(color: character.deepColor.opacity(0.25), radius: 14, y: 8)
+                    .id(previewCharacterID)
+                    .transition(.scale.combined(with: .opacity))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -264,6 +245,8 @@ struct PremiumView: View {
     private func availabilityBadge(for animal: AnimalCharacter) -> some View {
         if animal.id == CharacterCatalog.freeCharacterID {
             badge(text: L(key: "premium.availableFromStart"), icon: nil)
+        } else if CharacterUnlockStore.selfTestUnlocksAll {
+            badge(text: L(key: "common.unlocked"), icon: "checkmark.circle.fill")
         } else if let cards = CharacterUnlockStore.requirement(for: animal.id) {
             if totalCards >= cards {
                 badge(text: L("premium.earnedCards \(cards)"),
@@ -713,13 +696,6 @@ struct PremiumView: View {
         }
     }
 
-}
-
-private struct PremiumCharacterAnchorKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
-    }
 }
 
 private struct UnlockBurstRing: View {

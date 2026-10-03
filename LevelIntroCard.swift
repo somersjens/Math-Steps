@@ -249,7 +249,7 @@ struct LevelIntroCard: View {
     // MARK: - Pieces
 
     private var characterPortrait: some View {
-        Group {
+        CharacterMenuPortrait(character: theme, side: portraitSize) {
             if CharacterArtworkAvailability.hasLayeredArtwork(for: theme) {
                 CroppedCharacterPortrait(
                     character: theme,

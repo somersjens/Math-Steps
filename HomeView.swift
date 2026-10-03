@@ -476,10 +476,12 @@ struct HomeView: View {
                 .shadow(color: character.deepColor.opacity(0.20),
                         radius: isPad ? 8 : 5,
                         y: isPad ? 5 : 3)
-            Image(systemName: "pawprint.fill")
-                .font(.system(size: box * 0.42, weight: .bold))
-                .foregroundStyle(.white)
-                .accessibilityHidden(true)
+            CharacterMenuPortrait(character: character, side: box * 0.90) {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: box * 0.42, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
         }
             .frame(width: box, height: box)
             .contentShape(Rectangle())
@@ -545,6 +547,7 @@ struct HomeView: View {
     private func synchronizeUnlockPrompt(animated: Bool) {
         let next: NextCharacterPrompt?
         if totalCards > 0,
+           !CharacterUnlockStore.selfTestUnlocksAll,
            let milestone = CharacterUnlocks.nextMilestone(totalCards: displayedTotalCards) {
             next = NextCharacterPrompt(characterID: milestone.characterID,
                                        remaining: milestone.remaining)
@@ -1238,6 +1241,11 @@ struct HomeView: View {
     private func runReturnCelebrationSelfTest() {
         let levels = LevelCatalog.levels(for: topic).filter { !$0.requiresPremium }
         guard levels.count >= 2 else { return }
+
+        // The hidden hold gesture is also the character-roster self-test.
+        // Keep this independent from Premium: it must not unlock levels or
+        // impersonate a StoreKit entitlement.
+        CharacterUnlockStore.unlockAllForSelfTest()
 
         let full = board(for: levels[0]).maximum
         // One complete score celebration.

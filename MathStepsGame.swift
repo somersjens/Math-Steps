@@ -183,8 +183,14 @@ struct MathStepsPlayfield: View {
             let worldTravel = rewindPosition ?? routeProgress
 
             ZStack {
-                StepSky(character: character, travel: worldTravel)
-                FloatingWorld(character: character, isPad: isPad, travel: worldTravel)
+                StepSky(character: character,
+                        layout: layout,
+                        travel: worldTravel,
+                        routeLength: routeRoundCount)
+                FloatingWorld(character: character,
+                              layout: layout,
+                              travel: worldTravel,
+                              routeLength: routeRoundCount)
                 if routeRoundCount > 0 {
                     StepCourseRails(layout: layout,
                                     character: character,
@@ -2281,36 +2287,95 @@ private struct FinishPennantShape: Shape {
 
 private struct StepSky: View {
     let character: AnimalCharacter
+    let layout: StepCourseLayout
     let travel: CGFloat
+    let routeLength: Int
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                LinearGradient(colors: [Color(red: 0.10, green: 0.57, blue: 0.96),
-                                        Color(red: 0.29, green: 0.75, blue: 1.0),
-                                        character.skyColor, Color.white],
+                LinearGradient(colors: [Color(red: 0.07, green: 0.40, blue: 0.82),
+                                        Color(red: 0.18, green: 0.66, blue: 0.98),
+                                        character.skyColor.opacity(0.92),
+                                        Color(red: 0.91, green: 0.97, blue: 1.0)],
                                startPoint: .top, endPoint: .bottom)
+
+                // A stable light source gives the whole route one visual
+                // direction. It drifts only a few points over a complete run;
+                // unlike the old wrapped scenery it can never teleport.
                 Circle()
-                    .fill(.white.opacity(0.30))
-                    .frame(width: proxy.size.width * 0.74)
-                    .blur(radius: 34)
-                    .position(x: proxy.size.width * 0.18,
-                              y: proxy.size.height
-                                * (0.22 + sin(travel * 0.24) * 0.018))
-                ForEach(0..<8, id: \.self) { index in
-                    let cloudWidth = CGFloat(76 + index * 17)
-                    let cloudHeight = CGFloat(38 + index % 3 * 8)
-                    let margin = cloudHeight
-                    let span = proxy.size.height + margin * 2
-                    let unwrappedY = proxy.size.height * CGFloat(14 + index * 11) / 100
-                        + travel * CGFloat(10 + index * 2)
-                    let wrappedY = (unwrappedY + margin)
-                        .truncatingRemainder(dividingBy: span) - margin
+                    .fill(.white.opacity(0.22))
+                    .frame(width: proxy.size.width * 0.88)
+                    .blur(radius: 42)
+                    .position(x: proxy.size.width * 0.12,
+                              y: proxy.size.height * 0.18 + travel * 0.6)
+
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.94, blue: 0.63).opacity(0.68))
+                    .frame(width: layout.isPad ? 118 : 76)
+                    .overlay(Circle().stroke(.white.opacity(0.72), lineWidth: 3))
+                    .shadow(color: .white.opacity(0.58), radius: 30)
+                    .position(x: proxy.size.width * 0.20,
+                              y: proxy.size.height * 0.16 + travel * 0.35)
+
+                // Broad, distant cloud banks soften the horizon without
+                // covering the answer route. They live in world space too,
+                // so their slow parallax remains continuous after an answer.
+                ForEach(0..<4, id: \.self) { index in
+                    let worldDepth = CGFloat(index) * 5.2 + 2.1
+                    let depth = worldDepth - travel * 0.18
+                    StepCloudBank(seed: index)
+                        .frame(width: proxy.size.width * (layout.isPad ? 1.10 : 1.28),
+                               height: layout.isPad ? 118 : 76)
+                        .position(x: proxy.size.width
+                                    * (index.isMultiple(of: 2) ? 0.32 : 0.68),
+                                  y: layout.y(at: depth))
+                        .opacity(sceneryOpacity(at: depth,
+                                               farDepth: 13,
+                                               base: 0.28))
+                }
+
+                let cloudCount = max(15, Int(ceil(
+                    (CGFloat(max(1, routeLength)) * 0.30 + 12) / 1.85
+                )) + 1)
+                let cloudIndices = sceneryIndices(totalCount: cloudCount,
+                                                   spacing: 1.85,
+                                                   offset: 0.35,
+                                                   travel: travel,
+                                                   parallax: 0.30,
+                                                   farDepth: 12)
+                ForEach(cloudIndices, id: \.self) { index in
+                    let worldDepth = CGFloat(index) * 1.85 + 0.35
+                    let depth = worldDepth - travel * 0.30
+                    let scale = max(0.34, layout.scale(at: depth) * 0.86)
+                    let cloudWidth = CGFloat(96 + (index * 29) % 92) * scale
+                    let cloudHeight = CGFloat(42 + (index * 17) % 28) * scale
+                    let side = index.isMultiple(of: 2) ? CGFloat(-1) : 1
+                    let x = proxy.size.width / 2
+                        + side * proxy.size.width * CGFloat(0.25 + Double((index * 13) % 23) / 100)
                     StepCloud(seed: index)
                         .frame(width: cloudWidth, height: cloudHeight)
-                        .position(x: proxy.size.width * CGFloat((index * 41 + 7) % 108) / 100,
-                                  y: wrappedY)
-                        .opacity(0.54 + Double(index % 3) * 0.10)
+                        .position(x: x, y: layout.y(at: depth))
+                        .opacity(sceneryOpacity(at: depth,
+                                               farDepth: 12,
+                                               base: 0.42 + Double(index % 3) * 0.08))
+                }
+
+                // Long, soft wind strokes point toward the destination and
+                // make forward travel legible even between two large islands.
+                ForEach(0..<7, id: \.self) { index in
+                    let worldDepth = CGFloat(index) * 4.6 + 1.4
+                    let depth = worldDepth - travel * 0.42
+                    StepWindRibbon(pointsRight: index.isMultiple(of: 2))
+                        .stroke(.white.opacity(0.28),
+                                style: StrokeStyle(lineWidth: layout.isPad ? 4 : 2.5,
+                                                   lineCap: .round))
+                        .frame(width: proxy.size.width * 0.28,
+                               height: layout.isPad ? 30 : 20)
+                        .position(x: proxy.size.width
+                                    * (index.isMultiple(of: 2) ? 0.22 : 0.78),
+                                  y: layout.y(at: depth))
+                        .opacity(sceneryOpacity(at: depth, farDepth: 10, base: 0.9))
                 }
             }
         }
@@ -2320,29 +2385,73 @@ private struct StepSky: View {
 
 private struct FloatingWorld: View {
     let character: AnimalCharacter
-    let isPad: Bool
+    let layout: StepCourseLayout
     let travel: CGFloat
+    let routeLength: Int
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ForEach(0..<7, id: \.self) { index in
-                    let islandHeight = isPad
-                        ? CGFloat(135 + index * 7)
-                        : CGFloat(78 + index * 4)
-                    let margin = islandHeight
-                    let span = proxy.size.height + margin * 2
-                    let unwrappedY = proxy.size.height
-                        * CGFloat(0.28 + Double(index) * 0.105)
-                        + travel * CGFloat(9 + index * 3)
-                    let wrappedY = (unwrappedY + margin)
-                        .truncatingRemainder(dividingBy: span) - margin
-                    FloatingIsland(character: character, seed: index)
-                        .frame(width: isPad ? CGFloat(150 + index * 8) : CGFloat(86 + index * 5),
-                               height: islandHeight)
-                        .position(x: index.isMultiple(of: 2) ? proxy.size.width * 0.08 : proxy.size.width * 0.92,
-                                  y: wrappedY)
-                        .opacity(0.66 + Double(index % 2) * 0.20)
+                // The palest silhouettes sit furthest away and move slowest.
+                // They establish one continuous archipelago instead of a
+                // handful of sprites recycled at the screen edge.
+                let distantCount = max(10, Int(ceil(
+                    (CGFloat(max(1, routeLength)) * 0.46 + 11) / 2.65
+                )) + 1)
+                let distantIndices = sceneryIndices(totalCount: distantCount,
+                                                     spacing: 2.65,
+                                                     offset: 1.1,
+                                                     travel: travel,
+                                                     parallax: 0.46,
+                                                     farDepth: 11)
+                ForEach(distantIndices, id: \.self) { index in
+                    let worldDepth = CGFloat(index) * 2.65 + 1.1
+                    let depth = worldDepth - travel * 0.46
+                    let scale = max(0.22, layout.scale(at: depth) * 0.72)
+                    let side = index.isMultiple(of: 2) ? CGFloat(-1) : 1
+                    DistantFloatingIsland(character: character, seed: index)
+                        .frame(width: (layout.isPad ? 176 : 108) * scale,
+                               height: (layout.isPad ? 98 : 62) * scale)
+                        .position(x: proxy.size.width / 2
+                                    + side * proxy.size.width * 0.37,
+                                  y: layout.y(at: depth))
+                        .opacity(sceneryOpacity(at: depth, farDepth: 11,
+                                               base: 0.32))
+                }
+
+                // Midground islands are fixed to authored route depths. As
+                // travel increases their relative depth decreases, so every
+                // island follows one unbroken perspective path and leaves the
+                // bottom before the next island enters at the horizon.
+                let islandCount = max(14, Int(ceil(
+                    (CGFloat(max(1, routeLength)) * 0.68 + 10) / 1.52
+                )) + 1)
+                let islandIndices = sceneryIndices(totalCount: islandCount,
+                                                    spacing: 1.52,
+                                                    offset: 0.22,
+                                                    travel: travel,
+                                                    parallax: 0.68,
+                                                    farDepth: 10)
+                ForEach(islandIndices, id: \.self) { index in
+                    let worldDepth = CGFloat(index) * 1.52 + 0.22
+                    let depth = worldDepth - travel * 0.68
+                    let scale = max(0.24, layout.scale(at: depth))
+                    let side = index.isMultiple(of: 2) ? CGFloat(-1) : 1
+                    let spread = CGFloat(0.34 + Double((index * 17) % 13) / 100)
+                    let baseWidth = layout.isPad
+                        ? CGFloat(184 + (index * 19) % 54)
+                        : CGFloat(112 + (index * 13) % 36)
+                    FloatingIsland(character: character,
+                                   seed: index,
+                                   showsWaterfall: index % 4 == 1)
+                        .frame(width: baseWidth * scale,
+                               height: baseWidth * 0.90 * scale)
+                        .position(x: proxy.size.width / 2
+                                    + side * proxy.size.width * spread,
+                                  y: layout.y(at: depth))
+                        .opacity(sceneryOpacity(at: depth,
+                                               farDepth: 10,
+                                               base: 0.72 + Double(index % 2) * 0.14))
                 }
             }
         }
@@ -2350,40 +2459,412 @@ private struct FloatingWorld: View {
     }
 }
 
+/// Fades scenery just after it has passed the camera and before it reaches the
+/// convergence point. The position is never wrapped; opacity merely trims
+/// already off-course artwork from the render.
+private func sceneryOpacity(at depth: CGFloat,
+                            farDepth: CGFloat,
+                            base: Double) -> Double {
+    let nearFade = min(1, max(0, Double(depth + 1.45) / 0.55))
+    let farFade = min(1, max(0, Double(farDepth - depth) / 1.5))
+    return base * nearFade * farFade
+}
+
+/// Keeps only the small world-space window that can contribute pixels. The
+/// indices remain absolute, so adding a far-away item or dropping one below
+/// the camera never changes the identity or position of surviving scenery.
+private func sceneryIndices(totalCount: Int,
+                            spacing: CGFloat,
+                            offset: CGFloat,
+                            travel: CGFloat,
+                            parallax: CGFloat,
+                            farDepth: CGFloat) -> [Int] {
+    guard totalCount > 0, spacing > 0 else { return [] }
+    let worldTravel = travel * parallax
+    let first = max(0, Int(floor((worldTravel - 1.45 - offset) / spacing)) - 1)
+    let last = min(totalCount - 1,
+                   Int(ceil((worldTravel + farDepth - offset) / spacing)) + 1)
+    guard first <= last else { return [] }
+    return Array(first...last)
+}
+
 private struct FloatingIsland: View {
+    let character: AnimalCharacter
+    let seed: Int
+    let showsWaterfall: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let treePlacements = islandTreePlacements(seed: seed)
+            let waterfallDirection: CGFloat = seed.isMultiple(of: 2) ? -1 : 1
+            ZStack(alignment: .top) {
+                FloatingIslandRock(seed: seed)
+                .fill(LinearGradient(colors: [character.deepColor.opacity(0.74),
+                                              Color(red: 0.31, green: 0.25, blue: 0.48).opacity(0.88)],
+                                     startPoint: .top, endPoint: .bottom))
+                .overlay {
+                    FloatingIslandRock(seed: seed)
+                        .stroke(.white.opacity(0.14), lineWidth: 1.5)
+                }
+                .shadow(color: Color(red: 0.03, green: 0.16, blue: 0.35).opacity(0.28),
+                        radius: 7, y: 6)
+
+                if showsWaterfall {
+                    Capsule()
+                        .fill(LinearGradient(colors: [.white.opacity(0.94),
+                                                      Color(red: 0.35, green: 0.82, blue: 1.0).opacity(0.34)],
+                                             startPoint: .top,
+                                             endPoint: .bottom))
+                        .frame(width: proxy.size.width * 0.10,
+                               height: proxy.size.height * 0.56)
+                        .offset(x: waterfallDirection * proxy.size.width * 0.16,
+                                y: proxy.size.height * 0.24)
+                        .blur(radius: 0.7)
+                }
+
+                Ellipse()
+                    .fill(LinearGradient(colors: [Color(red: 0.86, green: 0.97, blue: 0.38),
+                                                  Color(red: 0.25, green: 0.66, blue: 0.20)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: proxy.size.width * 0.92, height: proxy.size.height * 0.30)
+                    .offset(y: proxy.size.height * 0.08)
+
+                // Every island uses one of six small landscape arrangements.
+                // Tree count, silhouette, scale and planting position vary,
+                // while remaining deterministic for stable world rendering.
+                ForEach(Array(treePlacements.enumerated()), id: \.offset) { index, placement in
+                    StepIslandTree(character: character,
+                                   style: (seed + index) % 3)
+                        .frame(width: proxy.size.width * 0.25 * placement.scale,
+                               height: proxy.size.height * 0.32 * placement.scale)
+                        .position(x: proxy.size.width * placement.x,
+                                  y: proxy.size.height * placement.y)
+                }
+
+                if seed % 3 != 1 {
+                    StepIslandShrub(character: character, seed: seed)
+                        .frame(width: proxy.size.width * 0.17,
+                               height: proxy.size.height * 0.11)
+                        .position(x: proxy.size.width * (seed.isMultiple(of: 2) ? 0.72 : 0.27),
+                                  y: proxy.size.height * 0.16)
+                }
+
+            }
+        }
+    }
+}
+
+private struct FloatingIslandRock: Shape {
+    let seed: Int
+
+    func path(in rect: CGRect) -> Path {
+        let tipShift = CGFloat((seed * 11) % 17 - 8) / 100
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.08, y: rect.height * 0.23))
+        path.addCurve(to: CGPoint(x: rect.width * 0.92, y: rect.height * 0.23),
+                      control1: CGPoint(x: rect.width * 0.30, y: rect.height * 0.08),
+                      control2: CGPoint(x: rect.width * 0.70, y: rect.height * 0.08))
+        path.addLine(to: CGPoint(x: rect.width * (0.69 + tipShift),
+                                 y: rect.height * 0.72))
+        path.addLine(to: CGPoint(x: rect.width * (0.51 + tipShift),
+                                 y: rect.height * 0.96))
+        path.addLine(to: CGPoint(x: rect.width * (0.34 + tipShift * 0.4),
+                                 y: rect.height * 0.68))
+        path.addCurve(to: CGPoint(x: rect.width * 0.08, y: rect.height * 0.23),
+                      control1: CGPoint(x: rect.width * 0.20, y: rect.height * 0.57),
+                      control2: CGPoint(x: rect.width * 0.13, y: rect.height * 0.38))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct DistantFloatingIsland: View {
     let character: AnimalCharacter
     let seed: Int
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                Path { path in
-                    path.move(to: CGPoint(x: proxy.size.width * 0.12, y: proxy.size.height * 0.23))
-                    path.addCurve(to: CGPoint(x: proxy.size.width * 0.88, y: proxy.size.height * 0.23),
-                                  control1: CGPoint(x: proxy.size.width * 0.30, y: proxy.size.height * 0.08),
-                                  control2: CGPoint(x: proxy.size.width * 0.70, y: proxy.size.height * 0.08))
-                    path.addLine(to: CGPoint(x: proxy.size.width * 0.65, y: proxy.size.height * 0.94))
-                    path.addCurve(to: CGPoint(x: proxy.size.width * 0.12, y: proxy.size.height * 0.23),
-                                  control1: CGPoint(x: proxy.size.width * 0.48, y: proxy.size.height),
-                                  control2: CGPoint(x: proxy.size.width * 0.22, y: proxy.size.height * 0.58))
-                    path.closeSubpath()
-                }
-                .fill(LinearGradient(colors: [character.deepColor.opacity(0.74),
-                                              Color(red: 0.34, green: 0.28, blue: 0.52).opacity(0.72)],
-                                     startPoint: .top, endPoint: .bottom))
+                FloatingIslandRock(seed: seed)
+                    .fill(character.deepColor.opacity(0.42))
                 Ellipse()
-                    .fill(LinearGradient(colors: [Color(red: 0.76, green: 0.93, blue: 0.29),
-                                                  Color(red: 0.28, green: 0.66, blue: 0.18)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: proxy.size.width * 0.92, height: proxy.size.height * 0.30)
+                    .fill(character.skyColor.opacity(0.56))
+                    .frame(width: proxy.size.width * 0.90,
+                           height: proxy.size.height * 0.31)
                     .offset(y: proxy.size.height * 0.08)
-                Circle()
-                    .fill(Color(red: 0.20, green: 0.58, blue: 0.20))
-                    .frame(width: proxy.size.width * 0.25)
-                    .offset(x: (seed.isMultiple(of: 2) ? -1 : 1) * proxy.size.width * 0.18,
-                            y: -proxy.size.height * 0.02)
+                Capsule()
+                    .fill(.white.opacity(0.24))
+                    .frame(width: proxy.size.width * 0.34,
+                           height: proxy.size.height * 0.08)
+                    .offset(x: seed.isMultiple(of: 2)
+                                ? -proxy.size.width * 0.18
+                                : proxy.size.width * 0.18,
+                            y: proxy.size.height * 0.04)
+            }
+            .blur(radius: 1.2)
+        }
+    }
+}
+
+private struct IslandTreePlacement {
+    let x: CGFloat
+    let y: CGFloat
+    let scale: CGFloat
+}
+
+/// Six hand-composed planting patterns keep the islands related without
+/// making them look stamped from one template. Positions are normalised to the
+/// grassy top and never change while the island travels through perspective.
+private func islandTreePlacements(seed: Int) -> [IslandTreePlacement] {
+    switch seed % 6 {
+    case 0:
+        return [.init(x: 0.28, y: 0.105, scale: 1.00),
+                .init(x: 0.62, y: 0.125, scale: 0.72)]
+    case 1:
+        return [.init(x: 0.22, y: 0.135, scale: 0.66),
+                .init(x: 0.48, y: 0.095, scale: 1.04),
+                .init(x: 0.75, y: 0.135, scale: 0.62)]
+    case 2:
+        return [.init(x: 0.61, y: 0.105, scale: 1.10)]
+    case 3:
+        return [.init(x: 0.34, y: 0.112, scale: 0.82),
+                .init(x: 0.70, y: 0.100, scale: 1.02)]
+    case 4:
+        return [.init(x: 0.24, y: 0.130, scale: 0.64),
+                .init(x: 0.45, y: 0.098, scale: 0.96),
+                .init(x: 0.68, y: 0.125, scale: 0.74)]
+    default:
+        return [.init(x: 0.30, y: 0.100, scale: 1.06),
+                .init(x: 0.58, y: 0.132, scale: 0.68)]
+    }
+}
+
+private struct StepIslandTree: View {
+    let character: AnimalCharacter
+    let style: Int
+
+    private var foliage: LinearGradient {
+        LinearGradient(colors: [Color(red: 0.66, green: 0.90, blue: 0.28),
+                                Color(red: 0.22, green: 0.63, blue: 0.20),
+                                character.color.opacity(0.86)],
+                       startPoint: .topLeading,
+                       endPoint: .bottomTrailing)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Ellipse()
+                    .fill(Color(red: 0.10, green: 0.30, blue: 0.14).opacity(0.24))
+                    .frame(width: proxy.size.width * 0.72,
+                           height: proxy.size.height * 0.13)
+                    .offset(y: proxy.size.height * 0.035)
+
+                Group {
+                    Capsule()
+                        .fill(LinearGradient(colors: [Color(red: 0.52, green: 0.34, blue: 0.19),
+                                                      Color(red: 0.25, green: 0.15, blue: 0.12)],
+                                             startPoint: .leading,
+                                             endPoint: .trailing))
+                        .frame(width: proxy.size.width * 0.14,
+                               height: proxy.size.height * 0.58)
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(.white.opacity(0.16))
+                                .frame(width: proxy.size.width * 0.032,
+                                       height: proxy.size.height * 0.43)
+                                .padding(.leading, proxy.size.width * 0.026)
+                        }
+
+                    Path { path in
+                        path.move(to: CGPoint(x: proxy.size.width * 0.50,
+                                              y: proxy.size.height * 0.53))
+                        path.addQuadCurve(
+                            to: CGPoint(x: proxy.size.width
+                                        * (style % 3 == 2 ? 0.72 : 0.34),
+                                        y: proxy.size.height * 0.35),
+                            control: CGPoint(x: proxy.size.width
+                                                * (style % 3 == 2 ? 0.60 : 0.41),
+                                             y: proxy.size.height * 0.43)
+                        )
+                    }
+                    .stroke(Color(red: 0.31, green: 0.19, blue: 0.12),
+                            style: StrokeStyle(lineWidth: max(1, proxy.size.width * 0.07),
+                                               lineCap: .round))
+                }
+                .rotationEffect(.degrees(style % 3 == 2 ? -4 : 0),
+                                anchor: .bottom)
+
+                // One closed canopy path per type. Keeping the crown as a
+                // single silhouette removes the loose circle that used to sit
+                // visibly in front of the windswept oval.
+                IslandTreeCanopy(style: style)
+                    .fill(foliage)
+                    .overlay {
+                        IslandTreeCanopy(style: style)
+                            .stroke(Color(red: 0.16, green: 0.48, blue: 0.17).opacity(0.46),
+                                    lineWidth: max(0.7, proxy.size.width * 0.025))
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Capsule()
+                            .fill(.white.opacity(0.22))
+                            .frame(width: proxy.size.width * 0.24,
+                                   height: proxy.size.height * 0.055)
+                            .rotationEffect(.degrees(-18))
+                            .padding(.leading, proxy.size.width * 0.20)
+                            .padding(.top, proxy.size.height * 0.12)
+                            .mask(IslandTreeCanopy(style: style))
+                    }
+                    .frame(width: proxy.size.width,
+                           height: proxy.size.height * 0.67)
+                    .offset(y: -proxy.size.height * 0.31)
+                    .shadow(color: character.deepColor.opacity(0.20), radius: 2, y: 2)
             }
         }
+    }
+}
+
+private struct IslandTreeCanopy: Shape {
+    let style: Int
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        switch style % 3 {
+        case 0:
+            // Rounded crown: a single soft clover silhouette rather than
+            // three circles whose overlap becomes visible at small sizes.
+            path.move(to: CGPoint(x: rect.width * 0.13, y: rect.height * 0.67))
+            path.addCurve(to: CGPoint(x: rect.width * 0.24, y: rect.height * 0.27),
+                          control1: CGPoint(x: rect.width * 0.03, y: rect.height * 0.55),
+                          control2: CGPoint(x: rect.width * 0.08, y: rect.height * 0.31))
+            path.addCurve(to: CGPoint(x: rect.width * 0.54, y: rect.height * 0.08),
+                          control1: CGPoint(x: rect.width * 0.33, y: rect.height * 0.04),
+                          control2: CGPoint(x: rect.width * 0.47, y: rect.height * 0.02))
+            path.addCurve(to: CGPoint(x: rect.width * 0.83, y: rect.height * 0.30),
+                          control1: CGPoint(x: rect.width * 0.67, y: rect.height * 0.02),
+                          control2: CGPoint(x: rect.width * 0.82, y: rect.height * 0.10))
+            path.addCurve(to: CGPoint(x: rect.width * 0.86, y: rect.height * 0.68),
+                          control1: CGPoint(x: rect.width * 0.98, y: rect.height * 0.35),
+                          control2: CGPoint(x: rect.width * 0.98, y: rect.height * 0.59))
+            path.addQuadCurve(to: CGPoint(x: rect.width * 0.13, y: rect.height * 0.67),
+                              control: CGPoint(x: rect.midX, y: rect.height * 0.92))
+        case 1:
+            // Pine crown: three connected branch tiers in one outline.
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.width * 0.70, y: rect.height * 0.34))
+            path.addLine(to: CGPoint(x: rect.width * 0.61, y: rect.height * 0.34))
+            path.addLine(to: CGPoint(x: rect.width * 0.82, y: rect.height * 0.66))
+            path.addLine(to: CGPoint(x: rect.width * 0.68, y: rect.height * 0.64))
+            path.addLine(to: CGPoint(x: rect.width * 0.91, y: rect.height * 0.94))
+            path.addQuadCurve(to: CGPoint(x: rect.width * 0.09, y: rect.height * 0.94),
+                              control: CGPoint(x: rect.midX, y: rect.height * 0.82))
+            path.addLine(to: CGPoint(x: rect.width * 0.32, y: rect.height * 0.64))
+            path.addLine(to: CGPoint(x: rect.width * 0.18, y: rect.height * 0.66))
+            path.addLine(to: CGPoint(x: rect.width * 0.39, y: rect.height * 0.34))
+            path.addLine(to: CGPoint(x: rect.width * 0.30, y: rect.height * 0.34))
+        default:
+            // Windswept crown: one continuous asymmetric canopy, broad on the
+            // downwind side and gently tucked around the trunk on the left.
+            path.move(to: CGPoint(x: rect.width * 0.10, y: rect.height * 0.66))
+            path.addCurve(to: CGPoint(x: rect.width * 0.25, y: rect.height * 0.31),
+                          control1: CGPoint(x: rect.width * 0.02, y: rect.height * 0.53),
+                          control2: CGPoint(x: rect.width * 0.09, y: rect.height * 0.33))
+            path.addCurve(to: CGPoint(x: rect.width * 0.58, y: rect.height * 0.22),
+                          control1: CGPoint(x: rect.width * 0.35, y: rect.height * 0.13),
+                          control2: CGPoint(x: rect.width * 0.47, y: rect.height * 0.14))
+            path.addCurve(to: CGPoint(x: rect.width * 0.96, y: rect.height * 0.48),
+                          control1: CGPoint(x: rect.width * 0.76, y: rect.height * 0.15),
+                          control2: CGPoint(x: rect.width * 0.94, y: rect.height * 0.27))
+            path.addCurve(to: CGPoint(x: rect.width * 0.76, y: rect.height * 0.75),
+                          control1: CGPoint(x: rect.width * 1.02, y: rect.height * 0.64),
+                          control2: CGPoint(x: rect.width * 0.90, y: rect.height * 0.76))
+            path.addCurve(to: CGPoint(x: rect.width * 0.10, y: rect.height * 0.66),
+                          control1: CGPoint(x: rect.width * 0.50, y: rect.height * 0.87),
+                          control2: CGPoint(x: rect.width * 0.25, y: rect.height * 0.84))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct StepIslandShrub: View {
+    let character: AnimalCharacter
+    let seed: Int
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Ellipse()
+                    .fill(character.deepColor.opacity(0.14))
+                    .frame(width: proxy.size.width * 0.84,
+                           height: proxy.size.height * 0.22)
+
+                IslandShrubCanopy(style: seed)
+                    .fill(LinearGradient(colors: [Color(red: 0.74, green: 0.93, blue: 0.32),
+                                                  Color(red: 0.24, green: 0.66, blue: 0.22),
+                                                  character.color.opacity(0.72)],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .overlay {
+                        IslandShrubCanopy(style: seed)
+                            .stroke(Color(red: 0.17, green: 0.49, blue: 0.18).opacity(0.44),
+                                    lineWidth: max(0.5, proxy.size.width * 0.025))
+                    }
+                    .frame(width: proxy.size.width,
+                           height: proxy.size.height * 0.90)
+
+                Capsule()
+                    .fill(.white.opacity(0.19))
+                    .frame(width: proxy.size.width * 0.28,
+                           height: proxy.size.height * 0.09)
+                    .rotationEffect(.degrees(-16))
+                    .offset(x: -proxy.size.width * 0.15,
+                            y: -proxy.size.height * 0.52)
+            }
+            .shadow(color: character.deepColor.opacity(0.16), radius: 1, y: 1)
+        }
+    }
+}
+
+private struct IslandShrubCanopy: Shape {
+    let style: Int
+
+    func path(in rect: CGRect) -> Path {
+        let leansRight = style.isMultiple(of: 2)
+        let highX = rect.width * (leansRight ? 0.62 : 0.38)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.05, y: rect.height * 0.88))
+        path.addCurve(to: CGPoint(x: rect.width * 0.22, y: rect.height * 0.43),
+                      control1: CGPoint(x: 0, y: rect.height * 0.72),
+                      control2: CGPoint(x: rect.width * 0.06, y: rect.height * 0.48))
+        path.addCurve(to: CGPoint(x: highX, y: rect.height * 0.20),
+                      control1: CGPoint(x: rect.width * 0.29, y: rect.height * 0.16),
+                      control2: CGPoint(x: highX - rect.width * 0.10, y: rect.height * 0.10))
+        path.addCurve(to: CGPoint(x: rect.width * 0.83, y: rect.height * 0.43),
+                      control1: CGPoint(x: highX + rect.width * 0.13, y: rect.height * 0.08),
+                      control2: CGPoint(x: rect.width * 0.84, y: rect.height * 0.18))
+        path.addCurve(to: CGPoint(x: rect.width * 0.95, y: rect.height * 0.88),
+                      control1: CGPoint(x: rect.width, y: rect.height * 0.48),
+                      control2: CGPoint(x: rect.width, y: rect.height * 0.73))
+        path.addQuadCurve(to: CGPoint(x: rect.width * 0.05, y: rect.height * 0.88),
+                          control: CGPoint(x: rect.midX, y: rect.height * 1.03))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct StepWindRibbon: Shape {
+    let pointsRight: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let start = pointsRight ? rect.minX : rect.maxX
+        let end = pointsRight ? rect.maxX : rect.minX
+        path.move(to: CGPoint(x: start, y: rect.height * 0.62))
+        path.addCurve(to: CGPoint(x: end, y: rect.height * 0.34),
+                      control1: CGPoint(x: rect.midX, y: rect.minY),
+                      control2: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
     }
 }
 
@@ -2393,19 +2874,164 @@ private struct StepCloud: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Capsule().fill(.white)
-                    .frame(width: proxy.size.width, height: proxy.size.height * 0.58)
-                    .offset(y: proxy.size.height * 0.18)
-                Circle().fill(.white)
-                    .frame(width: proxy.size.height * 0.74)
-                    .offset(x: -proxy.size.width * 0.20, y: -proxy.size.height * 0.03)
-                Circle().fill(.white.opacity(seed.isMultiple(of: 2) ? 0.96 : 0.90))
-                    .frame(width: proxy.size.height * 0.92)
-                    .offset(x: proxy.size.width * 0.08, y: -proxy.size.height * 0.10)
+                StepCloudShape(style: seed)
+                    .fill(LinearGradient(colors: [.white,
+                                                  Color(red: 0.91, green: 0.97, blue: 1.0),
+                                                  Color(red: 0.70, green: 0.86, blue: 0.97)],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+                    .overlay {
+                        StepCloudShape(style: seed)
+                            .stroke(.white.opacity(0.62),
+                                    lineWidth: max(0.6, proxy.size.height * 0.025))
+                    }
+
+                // A soft belly shade gives volume without introducing a
+                // second visible oval into the outside silhouette.
+                Ellipse()
+                    .fill(Color(red: 0.35, green: 0.66, blue: 0.89).opacity(0.15))
+                    .frame(width: proxy.size.width * 0.78,
+                           height: proxy.size.height * 0.22)
+                    .offset(y: proxy.size.height * 0.24)
+                    .blur(radius: 3)
+                    .mask(StepCloudShape(style: seed))
+
+                Path { path in
+                    path.move(to: CGPoint(x: proxy.size.width * 0.18,
+                                          y: proxy.size.height * 0.48))
+                    path.addCurve(to: CGPoint(x: proxy.size.width * 0.54,
+                                              y: proxy.size.height * 0.19),
+                                  control1: CGPoint(x: proxy.size.width * 0.28,
+                                                    y: proxy.size.height * 0.22),
+                                  control2: CGPoint(x: proxy.size.width * 0.43,
+                                                    y: proxy.size.height * 0.14))
+                }
+                .stroke(.white.opacity(0.40),
+                        style: StrokeStyle(lineWidth: max(1, proxy.size.height * 0.055),
+                                           lineCap: .round))
             }
-            .blur(radius: 2.2)
-            .shadow(color: Color.blue.opacity(0.14), radius: 7, y: 5)
+            .scaleEffect(x: seed.isMultiple(of: 2) ? 1 : -1)
+            .blur(radius: 1.1)
+            .shadow(color: Color(red: 0.12, green: 0.46, blue: 0.78).opacity(0.16),
+                    radius: 8, y: 5)
         }
+    }
+}
+
+/// Three authored cloud silhouettes. Each is one continuous outline, so even
+/// the smallest distant cloud reads as weather rather than stacked geometry.
+private struct StepCloudShape: Shape {
+    let style: Int
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        switch style % 3 {
+        case 0:
+            path.move(to: CGPoint(x: rect.width * 0.05, y: rect.height * 0.76))
+            path.addCurve(to: CGPoint(x: rect.width * 0.19, y: rect.height * 0.48),
+                          control1: CGPoint(x: 0, y: rect.height * 0.67),
+                          control2: CGPoint(x: rect.width * 0.05, y: rect.height * 0.49))
+            path.addCurve(to: CGPoint(x: rect.width * 0.43, y: rect.height * 0.34),
+                          control1: CGPoint(x: rect.width * 0.25, y: rect.height * 0.24),
+                          control2: CGPoint(x: rect.width * 0.36, y: rect.height * 0.24))
+            path.addCurve(to: CGPoint(x: rect.width * 0.67, y: rect.height * 0.17),
+                          control1: CGPoint(x: rect.width * 0.49, y: rect.height * 0.02),
+                          control2: CGPoint(x: rect.width * 0.62, y: rect.height * 0.03))
+            path.addCurve(to: CGPoint(x: rect.width * 0.82, y: rect.height * 0.46),
+                          control1: CGPoint(x: rect.width * 0.79, y: rect.height * 0.17),
+                          control2: CGPoint(x: rect.width * 0.84, y: rect.height * 0.30))
+            path.addCurve(to: CGPoint(x: rect.width * 0.95, y: rect.height * 0.76),
+                          control1: CGPoint(x: rect.width, y: rect.height * 0.49),
+                          control2: CGPoint(x: rect.width, y: rect.height * 0.68))
+        case 1:
+            path.move(to: CGPoint(x: rect.width * 0.03, y: rect.height * 0.72))
+            path.addCurve(to: CGPoint(x: rect.width * 0.24, y: rect.height * 0.49),
+                          control1: CGPoint(x: rect.width * 0.02, y: rect.height * 0.56),
+                          control2: CGPoint(x: rect.width * 0.12, y: rect.height * 0.46))
+            path.addCurve(to: CGPoint(x: rect.width * 0.52, y: rect.height * 0.29),
+                          control1: CGPoint(x: rect.width * 0.32, y: rect.height * 0.15),
+                          control2: CGPoint(x: rect.width * 0.46, y: rect.height * 0.14))
+            path.addCurve(to: CGPoint(x: rect.width * 0.71, y: rect.height * 0.42),
+                          control1: CGPoint(x: rect.width * 0.61, y: rect.height * 0.24),
+                          control2: CGPoint(x: rect.width * 0.67, y: rect.height * 0.29))
+            path.addCurve(to: CGPoint(x: rect.width * 0.97, y: rect.height * 0.72),
+                          control1: CGPoint(x: rect.width * 0.88, y: rect.height * 0.37),
+                          control2: CGPoint(x: rect.width, y: rect.height * 0.53))
+        default:
+            path.move(to: CGPoint(x: rect.width * 0.06, y: rect.height * 0.78))
+            path.addCurve(to: CGPoint(x: rect.width * 0.25, y: rect.height * 0.52),
+                          control1: CGPoint(x: 0, y: rect.height * 0.65),
+                          control2: CGPoint(x: rect.width * 0.10, y: rect.height * 0.49))
+            path.addCurve(to: CGPoint(x: rect.width * 0.44, y: rect.height * 0.32),
+                          control1: CGPoint(x: rect.width * 0.29, y: rect.height * 0.23),
+                          control2: CGPoint(x: rect.width * 0.37, y: rect.height * 0.22))
+            path.addCurve(to: CGPoint(x: rect.width * 0.57, y: rect.height * 0.09),
+                          control1: CGPoint(x: rect.width * 0.45, y: rect.height * 0.10),
+                          control2: CGPoint(x: rect.width * 0.52, y: rect.height * 0.04))
+            path.addCurve(to: CGPoint(x: rect.width * 0.73, y: rect.height * 0.42),
+                          control1: CGPoint(x: rect.width * 0.69, y: rect.height * 0.08),
+                          control2: CGPoint(x: rect.width * 0.76, y: rect.height * 0.25))
+            path.addCurve(to: CGPoint(x: rect.width * 0.94, y: rect.height * 0.78),
+                          control1: CGPoint(x: rect.width * 0.94, y: rect.height * 0.42),
+                          control2: CGPoint(x: rect.width, y: rect.height * 0.65))
+        }
+        path.addCurve(to: CGPoint(x: rect.width * 0.06, y: rect.height * 0.78),
+                      control1: CGPoint(x: rect.width * 0.74, y: rect.height * 0.96),
+                      control2: CGPoint(x: rect.width * 0.26, y: rect.height * 0.96))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// A low-contrast mass of overlapping cloud tops. Its irregular rhythm is
+/// deliberately broader than the individual clouds, making the sky feel deep
+/// while leaving the central bridge readable.
+private struct StepCloudBank: View {
+    let seed: Int
+
+    var body: some View {
+        GeometryReader { proxy in
+            StepCloudBankShape(style: seed)
+                .fill(LinearGradient(colors: [.white.opacity(0.94),
+                                              Color(red: 0.68, green: 0.85, blue: 0.96).opacity(0.72)],
+                                     startPoint: .top,
+                                     endPoint: .bottom))
+                .overlay {
+                    StepCloudBankShape(style: seed)
+                        .stroke(.white.opacity(0.35), lineWidth: 2)
+                }
+            .blur(radius: 2.6)
+            .shadow(color: Color.blue.opacity(0.10), radius: 12, y: 5)
+        }
+    }
+}
+
+private struct StepCloudBankShape: Shape {
+    let style: Int
+
+    func path(in rect: CGRect) -> Path {
+        let lift = style.isMultiple(of: 2) ? CGFloat(0.0) : rect.height * 0.07
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.height * 0.82))
+        path.addCurve(to: CGPoint(x: rect.width * 0.18, y: rect.height * 0.54),
+                      control1: CGPoint(x: rect.width * 0.03, y: rect.height * 0.61),
+                      control2: CGPoint(x: rect.width * 0.10, y: rect.height * 0.52))
+        path.addCurve(to: CGPoint(x: rect.width * 0.38, y: rect.height * 0.38 + lift),
+                      control1: CGPoint(x: rect.width * 0.24, y: rect.height * 0.32),
+                      control2: CGPoint(x: rect.width * 0.33, y: rect.height * 0.31 + lift))
+        path.addCurve(to: CGPoint(x: rect.width * 0.58, y: rect.height * 0.29 - lift),
+                      control1: CGPoint(x: rect.width * 0.43, y: rect.height * 0.13),
+                      control2: CGPoint(x: rect.width * 0.53, y: rect.height * 0.12 - lift))
+        path.addCurve(to: CGPoint(x: rect.width * 0.78, y: rect.height * 0.48),
+                      control1: CGPoint(x: rect.width * 0.67, y: rect.height * 0.22),
+                      control2: CGPoint(x: rect.width * 0.73, y: rect.height * 0.29))
+        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.height * 0.82),
+                      control1: CGPoint(x: rect.width * 0.93, y: rect.height * 0.42),
+                      control2: CGPoint(x: rect.width * 0.99, y: rect.height * 0.61))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.height * 0.82),
+                          control: CGPoint(x: rect.midX, y: rect.height * 1.02))
+        path.closeSubpath()
+        return path
     }
 }
 

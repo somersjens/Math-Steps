@@ -1413,8 +1413,10 @@ struct MathStepsPlayfield: View {
         animateCharacterJump(token: token)
 
         // One final, readable jump from the last glass row onto the island.
+        // It is deliberately a touch brisker than a regular answer jump: the
+        // destination is already clear, so this keeps the finale moving.
         withAnimation(.timingCurve(0.24, 0.05, 0.24, 1,
-                                   duration: reduceMotion ? 0.22 : 0.82)) {
+                                   duration: reduceMotion ? 0.20 : 0.76)) {
             jumpProgress = 1
             // Perspective is already expressed by the world geometry. Keep
             // the character at its established play size all the way onto the
@@ -1423,7 +1425,7 @@ struct MathStepsPlayfield: View {
             dogRotation = 0
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.20 : 0.82)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.18 : 0.76)) {
             guard animationToken == token else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -1439,18 +1441,17 @@ struct MathStepsPlayfield: View {
             }
         }
 
-        // First show a readable crouch while the chest remains physically on
-        // the island, behind the character. Frame 3 is deliberately held for
-        // a moment before frames 4 and 5 turn that anticipation into lift.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.32 : 1.18)) {
+        // Flow into the crouch shortly after contact. The short settling beat
+        // makes the landing readable without letting the finale come to rest.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.28 : 1.02)) {
             guard animationToken == token else { return }
             animateCharacterJump(token: token, playback: .finaleTakeoff)
         }
 
         // Pick up the chest while the deepest crouch is still visible. The
-        // following frame changes then read as an actual launch with weight,
-        // rather than a standing character that suddenly disappears.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.43 : 1.80)) {
+        // hand-off happens sooner, then the launch starts immediately so the
+        // chest and character feel like one continuous weighted movement.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.38 : 1.48)) {
             guard animationToken == token else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -1465,8 +1466,8 @@ struct MathStepsPlayfield: View {
                 jumpLateralArc = 0
                 jumpHeight = reduceMotion ? 0 : layout.jumpHeight * 0.72
             }
-            withAnimation(.timingCurve(0.34, 0.02, 0.76, 1,
-                                       duration: reduceMotion ? 0.28 : 1.28)) {
+            withAnimation(.timingCurve(0.22, 0.10, 0.58, 1,
+                                       duration: reduceMotion ? 0.26 : 1.10)) {
                 // With no horizontal destination or lateral arc, the complete
                 // foreground character and background chest travel vertically
                 // until both have crossed the top edge.
@@ -1474,7 +1475,7 @@ struct MathStepsPlayfield: View {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.76 : 3.16)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.68 : 2.66)) {
             guard animationToken == token else { return }
             // Keep the completed actor out of every later render, including
             // the full-screen-cover dismissal back to the menu. Model cleanup
@@ -3819,9 +3820,9 @@ nonisolated private enum StepCharacterAnimation {
 
     static func finaleTakeoffTimes(frameCount: Int) -> [Double] {
         switch frameCount {
-        case 3: [0, 0.34, 0.94]
-        case 4: [0, 0.15, 0.36, 0.94]
-        default: [0, 0.15, 0.36, 0.72, 0.94]
+        case 3: [0, 0.27, 0.55]
+        case 4: [0, 0.12, 0.29, 0.55]
+        default: [0, 0.12, 0.29, 0.55, 0.74]
         }
     }
 }

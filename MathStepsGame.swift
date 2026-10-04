@@ -717,8 +717,15 @@ struct MathStepsPlayfield: View {
             - characterSize * 0.43 * perspective
             + groundingAdjustment
             + characterSize * chestMetrics.verticalOffsetRatio * perspective
+        let referenceWidth = layout.goalWidth(at: 0)
         return StepGoalIsland(character: character,
                               isPad: isPad,
+                              referenceSize: CGSize(width: referenceWidth,
+                                                    height: layout.goalHeight(for: referenceWidth)),
+                              // Far away the island is a sliver near the
+                              // horizon; only animate it once it is visible.
+                              isAnimating: depth < 4.5,
+                              celebrating: victoryInProgress,
                               hidesChest: victoryChestAttached,
                               chestSize: CGSize(width: chestWidth,
                                                 height: chestHeight),
@@ -2362,109 +2369,30 @@ private func stepDeckGradient(character: AnimalCharacter,
 private struct StepGoalIsland: View {
     let character: AnimalCharacter
     let isPad: Bool
+    /// The island's size once the character stands on it; its artwork is
+    /// authored at this size and only ever scaled down.
+    let referenceSize: CGSize
+    let isAnimating: Bool
+    let celebrating: Bool
     let hidesChest: Bool
     let chestSize: CGSize
     let chestCenterY: CGFloat
 
     var body: some View {
         GeometryReader { proxy in
-            let width = proxy.size.width
-            let height = proxy.size.height
-            let edge = isPad ? CGFloat(6) : CGFloat(4)
-
             ZStack {
-                // One continuous oval, with a slightly lowered second oval
-                // supplying depth. There is deliberately no grass cap or
-                // rectangular dock: the bridge material owns the whole island.
-                Ellipse()
-                    .fill(LinearGradient(colors: [character.deepColor,
-                                                  Color(red: 0.05, green: 0.28, blue: 0.50)],
-                                         startPoint: .top,
-                                         endPoint: .bottom))
-                    .frame(width: width * 0.95, height: height * 0.67)
-                    .position(x: width * 0.5, y: height * 0.57)
-                    .shadow(color: .black.opacity(0.32),
-                            radius: isPad ? 14 : 9,
-                            y: isPad ? 11 : 7)
-
-                // The glossy finish below deliberately uses translucent
-                // colours. Put a fully opaque themed core behind it so the
-                // concealed rail ends can never show through the island.
-                Ellipse()
-                    .fill(character.skyColor)
-                    .frame(width: width, height: height * 0.66)
-                    .position(x: width * 0.5, y: height * 0.43)
-
-                Ellipse()
-                    .fill(LinearGradient(colors: [Color.white.opacity(0.96),
-                                                  character.skyColor.opacity(0.92),
-                                                  character.color.opacity(0.82),
-                                                  character.deepColor.opacity(0.90)],
-                                         startPoint: .topLeading,
-                                         endPoint: .bottomTrailing))
-                    .frame(width: width, height: height * 0.66)
-                    .overlay {
-                        Ellipse()
-                            .stroke(character.deepColor.opacity(0.72),
-                                    lineWidth: edge)
-                            .overlay {
-                                Ellipse()
-                                    .stroke(.white.opacity(0.72),
-                                            lineWidth: max(1.5, edge * 0.42))
-                                    .padding(.horizontal, width * 0.025)
-                                    .padding(.vertical, height * 0.025)
-                            }
-                    }
-                    .position(x: width * 0.5, y: height * 0.43)
-
-                StepGoalIslandDecorations(character: character)
-                    .frame(width: width, height: height)
+                // The opaque slab of the heaven island also conceals the
+                // rail ends, which terminate at this frame's centre.
+                GoalHeavenIsland(character: character,
+                                 isPad: isPad,
+                                 referenceSize: referenceSize,
+                                 isAnimating: isAnimating,
+                                 celebrating: celebrating)
 
                 if !hidesChest {
                     StepGoalChest(character: character)
                         .frame(width: chestSize.width, height: chestSize.height)
-                        .position(x: width * 0.5, y: chestCenterY)
-                }
-
-                // The pennants face away from the centre, share one flagpole
-                // baseline and are visibly planted in the rear island rim.
-                ForEach([-1.0, 1.0], id: \.self) { side in
-                    let poleX = width * (0.5 + CGFloat(side) * 0.31)
-                    Capsule()
-                        .fill(LinearGradient(colors: [.white,
-                                                      character.skyColor.opacity(0.82)],
-                                             startPoint: .leading,
-                                             endPoint: .trailing))
-                        .frame(width: isPad ? 7 : 4.5,
-                               height: height * 0.39)
-                        .position(x: poleX, y: height * 0.16)
-                        .shadow(color: .black.opacity(0.20), radius: 2, y: 2)
-
-                    FinishPennantShape(pointsRight: side > 0)
-                        .fill(LinearGradient(colors: side < 0
-                                                ? [character.skyColor, character.deepColor]
-                                                : [Color.yellow, Color.orange],
-                                             startPoint: .topLeading,
-                                             endPoint: .bottomTrailing))
-                        .overlay {
-                            FinishPennantShape(pointsRight: side > 0)
-                                .stroke(.white.opacity(0.78),
-                                        lineWidth: isPad ? 2.5 : 1.5)
-                        }
-                        .frame(width: width * 0.15, height: height * 0.15)
-                        .position(x: poleX + CGFloat(side) * width * 0.075,
-                                  y: -height * 0.005)
-                        .shadow(color: .black.opacity(0.16), radius: 2, y: 2)
-
-                    Circle()
-                        .fill(.white)
-                        .overlay {
-                            Circle().stroke(character.skyColor.opacity(0.72),
-                                            lineWidth: isPad ? 2 : 1)
-                        }
-                        .frame(width: isPad ? 14 : 9,
-                               height: isPad ? 14 : 9)
-                        .position(x: poleX, y: height * 0.34)
+                        .position(x: proxy.size.width * 0.5, y: chestCenterY)
                 }
             }
         }
@@ -2709,290 +2637,6 @@ private struct StepGoalPrizeItem: View {
     }
 }
 
-/// Small, character-specific habitat vignettes turn the finish from a generic
-/// coloured disc into a tiny destination: agility equipment, savanna grass,
-/// coral, ice, flowers and the other visual cues of each animal's world.
-private struct StepGoalIslandDecorations: View {
-    let character: AnimalCharacter
-
-    var body: some View {
-        Canvas { context, size in
-            switch character.id {
-            case "lion": paintSavanna(in: &context, size: size)
-            case "octopus": paintCoral(in: &context, size: size)
-            case "crab": paintShore(in: &context, size: size)
-            case "elephant": paintOasis(in: &context, size: size)
-            case "bear": paintForest(in: &context, size: size)
-            case "fox": paintAutumn(in: &context, size: size)
-            case "frog": paintPond(in: &context, size: size)
-            case "penguin": paintIce(in: &context, size: size)
-            case "bunny": paintMeadow(in: &context, size: size)
-            default: paintAgility(in: &context, size: size)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func paintAgility(in context: inout GraphicsContext, size: CGSize) {
-        let line = max(1.2, size.width * 0.009)
-        let hoop = CGRect(x: size.width * 0.10, y: size.height * 0.22,
-                          width: size.width * 0.18, height: size.height * 0.31)
-        context.stroke(Path(ellipseIn: hoop), with: .color(Color.orange),
-                       style: StrokeStyle(lineWidth: line, lineCap: .round))
-        for x in [0.11, 0.27] as [CGFloat] {
-            var pole = Path()
-            pole.move(to: CGPoint(x: size.width * x, y: size.height * 0.40))
-            pole.addLine(to: CGPoint(x: size.width * x, y: size.height * 0.57))
-            context.stroke(pole, with: .color(.white), lineWidth: line * 0.72)
-        }
-        for x in [0.76, 0.84] as [CGFloat] {
-            var cone = Path()
-            cone.move(to: CGPoint(x: size.width * (x - 0.035), y: size.height * 0.57))
-            cone.addLine(to: CGPoint(x: size.width * x, y: size.height * 0.31))
-            cone.addLine(to: CGPoint(x: size.width * (x + 0.035), y: size.height * 0.57))
-            cone.closeSubpath()
-            context.fill(cone, with: .color(x < 0.8 ? Color.orange : character.color))
-        }
-    }
-
-    private func paintSavanna(in context: inout GraphicsContext, size: CGSize) {
-        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.12, y: size.height * 0.17,
-                                             width: size.width * 0.12, height: size.width * 0.12)),
-                     with: .color(Color.yellow.opacity(0.92)))
-        grass(in: &context, size: size, originX: 0.14, color: character.deepColor)
-        grass(in: &context, size: size, originX: 0.81, color: character.deepColor)
-    }
-
-    private func paintCoral(in context: inout GraphicsContext, size: CGSize) {
-        coral(in: &context, size: size, originX: 0.16,
-              color: Color(red: 1.0, green: 0.34, blue: 0.56))
-        coral(in: &context, size: size, originX: 0.82,
-              color: Color(red: 0.20, green: 0.76, blue: 0.77))
-        for point in [CGPoint(x: 0.10, y: 0.24), CGPoint(x: 0.28, y: 0.19),
-                      CGPoint(x: 0.72, y: 0.25), CGPoint(x: 0.90, y: 0.18)] {
-            let r = size.width * 0.012
-            context.stroke(Path(ellipseIn: CGRect(x: size.width * point.x - r,
-                                                   y: size.height * point.y - r,
-                                                   width: r * 2, height: r * 2)),
-                           with: .color(.white.opacity(0.76)),
-                           lineWidth: max(0.8, size.width * 0.004))
-        }
-    }
-
-    private func paintShore(in context: inout GraphicsContext, size: CGSize) {
-        shell(in: &context, size: size, center: CGPoint(x: 0.17, y: 0.47),
-              color: Color(red: 1.0, green: 0.76, blue: 0.48))
-        shell(in: &context, size: size, center: CGPoint(x: 0.83, y: 0.45),
-              color: Color(red: 1.0, green: 0.56, blue: 0.52))
-        grass(in: &context, size: size, originX: 0.28,
-              color: Color(red: 0.18, green: 0.66, blue: 0.44))
-        grass(in: &context, size: size, originX: 0.72,
-              color: Color(red: 0.18, green: 0.66, blue: 0.44))
-    }
-
-    private func paintOasis(in context: inout GraphicsContext, size: CGSize) {
-        leafFan(in: &context, size: size, originX: 0.16,
-                color: Color(red: 0.22, green: 0.63, blue: 0.27))
-        leafFan(in: &context, size: size, originX: 0.84,
-                color: Color(red: 0.28, green: 0.72, blue: 0.35))
-        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.72, y: size.height * 0.48,
-                                             width: size.width * 0.15, height: size.height * 0.07)),
-                     with: .color(Color.blue.opacity(0.50)))
-    }
-
-    private func paintForest(in context: inout GraphicsContext, size: CGSize) {
-        pine(in: &context, size: size, x: 0.15, color: Color(red: 0.13, green: 0.42, blue: 0.20))
-        pine(in: &context, size: size, x: 0.84, color: Color(red: 0.18, green: 0.50, blue: 0.24))
-        context.fill(Path(roundedRect: CGRect(x: size.width * 0.73,
-                                              y: size.height * 0.44,
-                                              width: size.width * 0.09,
-                                              height: size.height * 0.12),
-                               cornerRadius: size.width * 0.025),
-                     with: .color(Color(red: 0.95, green: 0.61, blue: 0.08)))
-    }
-
-    private func paintAutumn(in context: inout GraphicsContext, size: CGSize) {
-        mushroom(in: &context, size: size, x: 0.16,
-                 color: Color(red: 0.88, green: 0.23, blue: 0.10))
-        mushroom(in: &context, size: size, x: 0.82,
-                 color: Color(red: 0.96, green: 0.57, blue: 0.10))
-        for point in [CGPoint(x: 0.26, y: 0.42), CGPoint(x: 0.72, y: 0.38)] {
-            context.fill(Path(ellipseIn: CGRect(x: size.width * point.x,
-                                                 y: size.height * point.y,
-                                                 width: size.width * 0.08,
-                                                 height: size.height * 0.04)),
-                         with: .color(character.deepColor.opacity(0.82)))
-        }
-    }
-
-    private func paintPond(in context: inout GraphicsContext, size: CGSize) {
-        for x in [0.13, 0.20, 0.80, 0.87] as [CGFloat] {
-            var reed = Path()
-            reed.move(to: CGPoint(x: size.width * x, y: size.height * 0.58))
-            reed.addLine(to: CGPoint(x: size.width * (x + (x < 0.5 ? 0.02 : -0.02)),
-                                     y: size.height * 0.26))
-            context.stroke(reed, with: .color(Color(red: 0.18, green: 0.52, blue: 0.17)),
-                           lineWidth: max(1, size.width * 0.007))
-        }
-        for x in [0.15, 0.77] as [CGFloat] {
-            context.fill(Path(ellipseIn: CGRect(x: size.width * x, y: size.height * 0.49,
-                                                 width: size.width * 0.12,
-                                                 height: size.height * 0.045)),
-                         with: .color(Color.green.opacity(0.86)))
-        }
-    }
-
-    private func paintIce(in context: inout GraphicsContext, size: CGSize) {
-        for (x, height) in [(0.12, 0.25), (0.20, 0.18), (0.79, 0.20),
-                            (0.87, 0.28)] as [(CGFloat, CGFloat)] {
-            var crystal = Path()
-            crystal.move(to: CGPoint(x: size.width * x, y: size.height * 0.58))
-            crystal.addLine(to: CGPoint(x: size.width * (x + 0.045),
-                                        y: size.height * height))
-            crystal.addLine(to: CGPoint(x: size.width * (x + 0.09),
-                                        y: size.height * 0.58))
-            crystal.closeSubpath()
-            context.fill(crystal, with: .color(Color.white.opacity(0.78)))
-        }
-        for x in [0.27, 0.70] as [CGFloat] {
-            context.fill(Path(ellipseIn: CGRect(x: size.width * x, y: size.height * 0.48,
-                                                 width: size.width * 0.07,
-                                                 height: size.width * 0.07)),
-                         with: .color(.white.opacity(0.88)))
-        }
-    }
-
-    private func paintMeadow(in context: inout GraphicsContext, size: CGSize) {
-        flower(in: &context, size: size, center: CGPoint(x: 0.16, y: 0.42),
-               color: Color.yellow)
-        flower(in: &context, size: size, center: CGPoint(x: 0.28, y: 0.50),
-               color: Color.pink)
-        flower(in: &context, size: size, center: CGPoint(x: 0.72, y: 0.48),
-               color: Color.purple.opacity(0.82))
-        flower(in: &context, size: size, center: CGPoint(x: 0.84, y: 0.40),
-               color: Color.white)
-    }
-
-    private func grass(in context: inout GraphicsContext,
-                       size: CGSize,
-                       originX: CGFloat,
-                       color: Color) {
-        for offset in [-0.045, 0, 0.045] as [CGFloat] {
-            var blade = Path()
-            blade.move(to: CGPoint(x: size.width * originX, y: size.height * 0.58))
-            blade.addQuadCurve(to: CGPoint(x: size.width * (originX + offset),
-                                           y: size.height * (0.30 + abs(offset))),
-                               control: CGPoint(x: size.width * (originX - offset * 0.5),
-                                                y: size.height * 0.43))
-            context.stroke(blade, with: .color(color),
-                           style: StrokeStyle(lineWidth: max(1, size.width * 0.008),
-                                              lineCap: .round))
-        }
-    }
-
-    private func coral(in context: inout GraphicsContext,
-                       size: CGSize,
-                       originX: CGFloat,
-                       color: Color) {
-        let line = max(1.5, size.width * 0.012)
-        var trunk = Path()
-        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.58))
-        trunk.addLine(to: CGPoint(x: size.width * originX, y: size.height * 0.29))
-        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.43))
-        trunk.addLine(to: CGPoint(x: size.width * (originX - 0.06), y: size.height * 0.34))
-        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.39))
-        trunk.addLine(to: CGPoint(x: size.width * (originX + 0.06), y: size.height * 0.31))
-        context.stroke(trunk, with: .color(color),
-                       style: StrokeStyle(lineWidth: line, lineCap: .round,
-                                          lineJoin: .round))
-    }
-
-    private func shell(in context: inout GraphicsContext,
-                       size: CGSize,
-                       center: CGPoint,
-                       color: Color) {
-        let rect = CGRect(x: size.width * (center.x - 0.06),
-                          y: size.height * (center.y - 0.09),
-                          width: size.width * 0.12,
-                          height: size.height * 0.16)
-        context.fill(Path(ellipseIn: rect), with: .color(color))
-        var seam = Path()
-        seam.move(to: CGPoint(x: size.width * center.x,
-                              y: size.height * (center.y - 0.07)))
-        seam.addLine(to: CGPoint(x: size.width * center.x,
-                                 y: size.height * (center.y + 0.06)))
-        context.stroke(seam, with: .color(.white.opacity(0.64)),
-                       lineWidth: max(0.7, size.width * 0.004))
-    }
-
-    private func leafFan(in context: inout GraphicsContext,
-                         size: CGSize,
-                         originX: CGFloat,
-                         color: Color) {
-        for angle in [-0.07, 0, 0.07] as [CGFloat] {
-            let rect = CGRect(x: size.width * (originX + angle - 0.035),
-                              y: size.height * (0.28 + abs(angle) * 0.6),
-                              width: size.width * 0.07,
-                              height: size.height * 0.28)
-            context.fill(Path(ellipseIn: rect), with: .color(color))
-        }
-    }
-
-    private func pine(in context: inout GraphicsContext,
-                      size: CGSize,
-                      x: CGFloat,
-                      color: Color) {
-        for (y, halfWidth) in [(0.24, 0.08), (0.34, 0.10),
-                               (0.44, 0.12)] as [(CGFloat, CGFloat)] {
-            var tier = Path()
-            tier.move(to: CGPoint(x: size.width * x, y: size.height * y))
-            tier.addLine(to: CGPoint(x: size.width * (x - halfWidth),
-                                     y: size.height * (y + 0.18)))
-            tier.addLine(to: CGPoint(x: size.width * (x + halfWidth),
-                                     y: size.height * (y + 0.18)))
-            tier.closeSubpath()
-            context.fill(tier, with: .color(color))
-        }
-    }
-
-    private func mushroom(in context: inout GraphicsContext,
-                          size: CGSize,
-                          x: CGFloat,
-                          color: Color) {
-        context.fill(Path(roundedRect: CGRect(x: size.width * (x - 0.018),
-                                              y: size.height * 0.43,
-                                              width: size.width * 0.036,
-                                              height: size.height * 0.14),
-                               cornerRadius: size.width * 0.01),
-                     with: .color(Color.white.opacity(0.90)))
-        context.fill(Path(ellipseIn: CGRect(x: size.width * (x - 0.07),
-                                             y: size.height * 0.36,
-                                             width: size.width * 0.14,
-                                             height: size.height * 0.13)),
-                     with: .color(color))
-    }
-
-    private func flower(in context: inout GraphicsContext,
-                        size: CGSize,
-                        center: CGPoint,
-                        color: Color) {
-        let radius = size.width * 0.025
-        for angle in stride(from: 0.0, to: Double.pi * 2,
-                            by: Double.pi / 2) {
-            let x = size.width * center.x + CGFloat(cos(angle)) * radius
-            let y = size.height * center.y + CGFloat(sin(angle)) * radius
-            context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
-                                                 width: radius * 2, height: radius * 2)),
-                         with: .color(color))
-        }
-        context.fill(Path(ellipseIn: CGRect(x: size.width * center.x - radius * 0.65,
-                                             y: size.height * center.y - radius * 0.65,
-                                             width: radius * 1.3, height: radius * 1.3)),
-                     with: .color(Color.orange))
-    }
-}
-
 private struct StepGoalChest: View {
     let character: AnimalCharacter
 
@@ -3081,29 +2725,6 @@ private struct StepGoalChest: View {
             }
             .shadow(color: .black.opacity(0.30), radius: 4, y: 3)
         }
-    }
-}
-
-private struct FinishPennantShape: Shape {
-    let pointsRight: Bool
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        if pointsRight {
-            path.move(to: .zero)
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.14))
-            path.addLine(to: CGPoint(x: rect.width * 0.72, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.86))
-            path.addLine(to: CGPoint(x: 0, y: rect.maxY))
-        } else {
-            path.move(to: CGPoint(x: rect.maxX, y: 0))
-            path.addLine(to: CGPoint(x: 0, y: rect.height * 0.14))
-            path.addLine(to: CGPoint(x: rect.width * 0.28, y: rect.midY))
-            path.addLine(to: CGPoint(x: 0, y: rect.height * 0.86))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        }
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -4399,6 +4020,78 @@ nonisolated private enum StepCharacterSpriteCache {
     static func prewarm(characterID: String) {
         guard StepCharacterAnimation.assetPrefix(for: characterID) != nil else { return }
         for frame in 1...8 { _ = image(characterID: characterID, frame: frame) }
+    }
+}
+#endif
+
+#if DEBUG
+/// Launch with `-GoalHeavenQA`. Shows the finale composition of one
+/// character: the island at its landing depth with the character holding the
+/// prize on the dais. `GOAL_QA_CHARACTER` picks the character,
+/// `GOAL_QA_DEPTH` shows the approach instead, and `GOAL_QA_CELEBRATE=1`
+/// starts the landing burst.
+struct StepGoalHeavenQAView: View {
+    private let environment = ProcessInfo.processInfo.environment
+
+    var body: some View {
+        GeometryReader { proxy in
+            let character = CharacterCatalog.character(id: environment["GOAL_QA_CHARACTER"] ?? "dog")
+            let depth = CGFloat(Double(environment["GOAL_QA_DEPTH"] ?? "") ?? 0)
+            let celebrating = environment["GOAL_QA_CELEBRATE"] == "1"
+            let isPad = proxy.size.width > 700
+            let layout = StepCourseLayout(size: proxy.size,
+                                          isPad: isPad,
+                                          bottomReserve: proxy.safeAreaInsets.bottom)
+            let characterSize = StepCharacterSprite.hasAnimation(for: character)
+                ? layout.dogSize * StepCharacterAnimation.characterScale(for: character.id)
+                : layout.dogSize / 1.5
+            let grounding = characterSize
+                * StepCharacterAnimation.groundingOffsetRatio(for: character.id)
+            let chestMetrics = StepGoalChestMetrics(characterID: character.id)
+            let chestWidth = characterSize * chestMetrics.widthRatio
+            let width = layout.goalWidth(at: depth)
+            let height = layout.goalHeight(for: width)
+            let referenceWidth = layout.goalWidth(at: 0)
+            let onIsland = depth < 0.01
+            let feetY = onIsland
+                ? layout.y(at: 0) + referenceWidth * 0.08
+                : layout.baseY
+
+            ZStack {
+                StepSky(character: character, layout: layout, travel: 10, routeLength: 10)
+                FloatingWorld(character: character, layout: layout, travel: 10, routeLength: 10)
+                StepCourseRails(layout: layout, character: character, farDepth: depth)
+
+                StepGoalIsland(character: character,
+                               isPad: isPad,
+                               referenceSize: CGSize(width: referenceWidth,
+                                                     height: layout.goalHeight(for: referenceWidth)),
+                               isAnimating: true,
+                               celebrating: celebrating,
+                               hidesChest: true,
+                               chestSize: .zero,
+                               chestCenterY: 0)
+                    .frame(width: width, height: height)
+                    .position(x: layout.size.width / 2, y: layout.y(at: depth))
+
+                StepCharacterSprite(character: character,
+                                    animationID: 0,
+                                    playback: .fullJump,
+                                    reduceMotion: true)
+                    .background {
+                        if onIsland {
+                            StepGoalChest(character: character)
+                                .frame(width: chestWidth,
+                                       height: chestWidth * chestMetrics.aspectRatio)
+                                .offset(y: characterSize * chestMetrics.verticalOffsetRatio)
+                        }
+                    }
+                    .frame(width: characterSize, height: characterSize)
+                    .position(x: layout.size.width / 2,
+                              y: feetY - characterSize * 0.43 + grounding)
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 #endif

@@ -25,6 +25,10 @@
 		F95BEE7F306C406F0035F17C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE6F306C406F0035F17C /* Theme.swift */; };
 		F95BEE80306C406F0035F17C /* ElephantChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE2B306C406F0035F17C /* ElephantChallengeApp.swift */; };
 		F95BEE81306C406F0035F17C /* HabitatBrush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE36306C406F0035F17C /* HabitatBrush.swift */; };
+		A7C0DE20006C406F0035F17C /* GoalHeavenIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */; };
+		A7C0DE20106C406F0035F17C /* GoalHeavenScenesA.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */; };
+		A7C0DE20206C406F0035F17C /* GoalHeavenScenesB.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */; };
+		A7C0DE20306C406F0035F17C /* GoalHeavenParticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */; };
 		F95BEE82306C406F0035F17C /* PromoTourSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE4E306C406F0035F17C /* PromoTourSupport.swift */; };
 		F95BEE83306C406F0035F17C /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE57306C406F0035F17C /* ResultView.swift */; };
 		F95BEE84306C406F0035F17C /* MemoryGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE23306C406F0035F17C /* MemoryGame.swift */; };
@@ -132,6 +136,10 @@
 		F95BEE34306C406F0035F17C /* FrogPondHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrogPondHabitat.swift; sourceTree = "<group>"; };
 		F95BEE35306C406F0035F17C /* HabitatAmbience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatAmbience.swift; sourceTree = "<group>"; };
 		F95BEE36306C406F0035F17C /* HabitatBrush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatBrush.swift; sourceTree = "<group>"; };
+		A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenIsland.swift; sourceTree = "<group>"; };
+		A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesA.swift; sourceTree = "<group>"; };
+		A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesB.swift; sourceTree = "<group>"; };
+		A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenParticles.swift; sourceTree = "<group>"; };
 		F95BEE37306C406F0035F17C /* HabitatGalleryQAView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatGalleryQAView.swift; sourceTree = "<group>"; };
 		F95BEE38306C406F0035F17C /* LionSavannaHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LionSavannaHabitat.swift; sourceTree = "<group>"; };
 		F95BEE39306C406F0035F17C /* OctopusReefHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OctopusReefHabitat.swift; sourceTree = "<group>"; };
@@ -312,6 +320,10 @@
 				F95BEE34306C406F0035F17C /* FrogPondHabitat.swift */,
 				F95BEE35306C406F0035F17C /* HabitatAmbience.swift */,
 				F95BEE36306C406F0035F17C /* HabitatBrush.swift */,
+				A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */,
+				A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */,
+				A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */,
+				A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */,
 				F95BEE37306C406F0035F17C /* HabitatGalleryQAView.swift */,
 				F95BEE38306C406F0035F17C /* LionSavannaHabitat.swift */,
 				F95BEE39306C406F0035F17C /* OctopusReefHabitat.swift */,
@@ -447,6 +459,10 @@
 				F95BEE7F306C406F0035F17C /* Theme.swift in Sources */,
 				F95BEE80306C406F0035F17C /* ElephantChallengeApp.swift in Sources */,
 				F95BEE81306C406F0035F17C /* HabitatBrush.swift in Sources */,
+				A7C0DE20006C406F0035F17C /* GoalHeavenIsland.swift in Sources */,
+				A7C0DE20106C406F0035F17C /* GoalHeavenScenesA.swift in Sources */,
+				A7C0DE20206C406F0035F17C /* GoalHeavenScenesB.swift in Sources */,
+				A7C0DE20306C406F0035F17C /* GoalHeavenParticles.swift in Sources */,
 				F95BEE82306C406F0035F17C /* PromoTourSupport.swift in Sources */,
 				F95BEE83306C406F0035F17C /* ResultView.swift in Sources */,
 				F95BEE84306C406F0035F17C /* MemoryGame.swift in Sources */,

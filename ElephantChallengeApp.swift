@@ -130,6 +130,8 @@ struct ElephantChallengeApp: App {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-HabitatGalleryQA") {
             HabitatGalleryQAView()
+        } else if ProcessInfo.processInfo.arguments.contains("-GoalHeavenQA") {
+            StepGoalHeavenQAView()
         } else if PromoTrailerRuntime.isActive {
             PromoTrailerBootstrapView()
         } else {

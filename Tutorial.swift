@@ -65,8 +65,7 @@ final class TutorialController: ObservableObject {
 
     var isActive: Bool { step != nil }
 
-    /// The line currently on screen. Only English copy ships in this first pass;
-    /// the localization layer falls back to it for every other app language.
+    /// The localized line currently shown for the active tutorial step.
     var message: String? {
         step.map { L(key: $0.messageKey) }
     }

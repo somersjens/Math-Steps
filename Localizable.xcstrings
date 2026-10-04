@@ -103265,7 +103265,472 @@
       }
     },
     "Terug naar de start" : {
-
+      "comment" : "Restart badge shown after a wrong answer returns the player to the beginning of the course.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "af" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terug na die begin"
+          }
+        },
+        "am" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ወደ መጀመሪያው ተመለስ"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "العودة إلى البداية"
+          }
+        },
+        "as" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "আৰম্ভণিলৈ উভতি যাওক"
+          }
+        },
+        "az" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başlanğıca qayıt"
+          }
+        },
+        "be" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вярнуцца да пачатку"
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обратно в началото"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "শুরুতে ফিরে যান"
+          }
+        },
+        "bo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "འགོ་སྟོད་ལ་ཕྱིར་ལོག"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nazad na početak"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Torna a l’inici"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zpět na začátek"
+          }
+        },
+        "cy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yn ôl i’r dechrau"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilbage til start"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurück zum Start"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Πίσω στην αρχή"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to the start"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volver al inicio"
+          }
+        },
+        "et" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagasi algusesse"
+          }
+        },
+        "eu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Itzuli hasierara"
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "بازگشت به شروع"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Takaisin alkuun"
+          }
+        },
+        "fo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aftur til byrjanina"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour au début"
+          }
+        },
+        "ga" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ar ais go dtí an tús"
+          }
+        },
+        "gl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volver ao inicio"
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "શરૂઆત પર પાછા જાઓ"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "חזרה להתחלה"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "शुरुआत पर वापस जाएँ"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Natrag na početak"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vissza a kezdéshez"
+          }
+        },
+        "hy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Վերադառնալ սկիզբ"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kembali ke awal"
+          }
+        },
+        "is" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Til baka í byrjun"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Torna all’inizio"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スタートに戻る"
+          }
+        },
+        "ka" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "დაბრუნება დასაწყისში"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Басына оралу"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ត្រឡប់ទៅចំណុចចាប់ផ្តើម"
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಆರಂಭಕ್ಕೆ ಹಿಂತಿರುಗಿ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "시작 지점으로 돌아가기"
+          }
+        },
+        "lo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ກັບໄປຈຸດເລີ່ມຕົ້ນ"
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grįžti į pradžią"
+          }
+        },
+        "lv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atpakaļ uz sākumu"
+          }
+        },
+        "mk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Назад на почеток"
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "തുടക്കത്തിലേക്ക് മടങ്ങുക"
+          }
+        },
+        "mn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эхлэл рүү буцах"
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सुरुवातीला परत जा"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kembali ke permulaan"
+          }
+        },
+        "my" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "အစသို့ ပြန်သွားရန်"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilbake til start"
+          }
+        },
+        "ne" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सुरुमा फर्कनुहोस्"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terug naar de start"
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଆରମ୍ଭକୁ ଫେରନ୍ତୁ"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਸ਼ੁਰੂ ਵਿੱਚ ਵਾਪਸ ਜਾਓ"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Powrót do początku"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voltar ao início"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Înapoi la început"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернуться к началу"
+          }
+        },
+        "si" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ආරම්භයට ආපසු යන්න"
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Späť na začiatok"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nazaj na začetek"
+          }
+        },
+        "sq" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kthehu në fillim"
+          }
+        },
+        "sr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Назад на почетак"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tillbaka till start"
+          }
+        },
+        "sw" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rudi mwanzo"
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "தொடக்கத்திற்குத் திரும்பு"
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ప్రారంభానికి తిరిగి వెళ్లండి"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "กลับไปจุดเริ่มต้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başa dön"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "باشلىنىشقا قايتىش"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повернутися на початок"
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شروع پر واپس جائیں"
+          }
+        },
+        "uz" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boshiga qaytish"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quay lại điểm bắt đầu"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回起点"
+          }
+        },
+        "zu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buyela ekuqaleni"
+          }
+        }
+      }
     },
     "topic.addition" : {
       "comment" : "Topic name, shown on the topic selector and reused inside onboarding.level.subtitle. Keep it a noun.",
@@ -112163,10 +112628,466 @@
       "comment" : "Tutorial step 1: the first two rows contain only the correct answer.",
       "extractionState" : "manual",
       "localizations" : {
+        "af" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tik op die regte antwoord wat by die vraag pas!"
+          }
+        },
+        "am" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ከጥያቄው ጋር የሚስማማውን ትክክለኛ መልስ ንካ!"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اضغط على الإجابة الصحيحة المطابقة للسؤال!"
+          }
+        },
+        "as" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "প্ৰশ্নটোৰ সৈতে মিল থকা শুদ্ধ উত্তৰটোত টেপ কৰক!"
+          }
+        },
+        "az" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suala uyğun düzgün cavaba toxun!"
+          }
+        },
+        "be" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Націсні на правільны адказ на пытанне!"
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Докосни правилния отговор на въпроса!"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "প্রশ্নের সঙ্গে মেলে এমন সঠিক উত্তরে ট্যাপ করুন!"
+          }
+        },
+        "bo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "དྲི་བ་དང་མཐུན་པའི་ལན་ཡང་དག་པ་དེར་མནན་རོགས།"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dodirni tačan odgovor koji odgovara pitanju!"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca la resposta correcta que correspon a la pregunta!"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klepni na správnou odpověď na otázku!"
+          }
+        },
+        "cy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapiwch yr ateb cywir sy’n cyd-fynd â’r cwestiwn!"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tryk på det rigtige svar til spørgsmålet!"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tippe auf die richtige Antwort zur Frage!"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Πάτησε τη σωστή απάντηση που ταιριάζει στην ερώτηση!"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Click on the correct answer that matches the question!"
+            "value" : "Tap the correct answer that matches the question!"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Toca la respuesta correcta que corresponde a la pregunta!"
+          }
+        },
+        "et" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puuduta küsimusele vastavat õiget vastust!"
+          }
+        },
+        "eu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sakatu galderari dagokion erantzun zuzena!"
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "روی پاسخ درستِ متناسب با سؤال بزن!"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Napauta kysymykseen sopivaa oikeaa vastausta!"
+          }
+        },
+        "fo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trýst á rætta svarið, sum hóskar til spurningin!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appuie sur la bonne réponse à la question !"
+          }
+        },
+        "ga" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapáil an freagra ceart a oireann don cheist!"
+          }
+        },
+        "gl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca a resposta correcta á pregunta!"
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "પ્રશ્નને અનુરૂપ સાચા જવાબ પર ટૅપ કરો!"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "יש להקיש על התשובה הנכונה שמתאימה לשאלה!"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सवाल से मेल खाने वाले सही जवाब पर टैप करें!"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dodirni točan odgovor koji odgovara pitanju!"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koppints a kérdéshez illő helyes válaszra!"
+          }
+        },
+        "hy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Սեղմիր հարցին համապատասխանող ճիշտ պատասխանը։"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ketuk jawaban benar yang sesuai dengan pertanyaan!"
+          }
+        },
+        "is" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pikkaðu á rétta svarið við spurningunni!"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tocca la risposta corretta alla domanda!"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "問題に合った正しい答えをタップしよう！"
+          }
+        },
+        "ka" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "შეეხე კითხვაზე სწორ პასუხს!"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сұраққа сәйкес дұрыс жауапты бас!"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចុចលើចម្លើយត្រឹមត្រូវដែលត្រូវនឹងសំណួរ!"
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಪ್ರಶ್ನೆಗೆ ಹೊಂದುವ ಸರಿಯಾದ ಉತ್ತರವನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ!"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "문제에 맞는 정답을 눌러 보세요!"
+          }
+        },
+        "lo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ແຕະຄຳຕອບທີ່ຖືກຕ້ອງກົງກັບຄຳຖາມ!"
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bakstelėk teisingą atsakymą į klausimą!"
+          }
+        },
+        "lv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pieskaries pareizajai atbildei uz jautājumu!"
+          }
+        },
+        "mk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Допрете го точниот одговор на прашањето!"
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ചോദ്യത്തിന് യോജിച്ച ശരിയായ ഉത്തരത്തിൽ ടാപ്പ് ചെയ്യൂ!"
+          }
+        },
+        "mn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Асуултад тохирох зөв хариултыг товшоорой!"
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "प्रश्नाशी जुळणाऱ्या योग्य उत्तरावर टॅप करा!"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ketik jawapan betul yang sepadan dengan soalan!"
+          }
+        },
+        "my" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "မေးခွန်းနှင့် ကိုက်ညီသော အဖြေမှန်ကို နှိပ်ပါ!"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trykk på det riktige svaret på spørsmålet!"
+          }
+        },
+        "ne" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "प्रश्नसँग मिल्ने सही उत्तरमा ट्याप गर्नुहोस्!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tik op het juiste antwoord dat bij de vraag past!"
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ପ୍ରଶ୍ନ ସହିତ ମେଳ ଖାଉଥିବା ସଠିକ୍ ଉତ୍ତରରେ ଟ୍ୟାପ୍ କରନ୍ତୁ!"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਸਵਾਲ ਨਾਲ ਮੇਲ ਖਾਂਦੇ ਸਹੀ ਜਵਾਬ ਉੱਤੇ ਟੈਪ ਕਰੋ!"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dotknij poprawnej odpowiedzi na pytanie!"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca na resposta certa à pergunta!"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atinge răspunsul corect la întrebare!"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажми на правильный ответ на вопрос!"
+          }
+        },
+        "si" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ප්‍රශ්නයට ගැළපෙන නිවැරදි පිළිතුර තට්ටු කරන්න!"
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ťukni na správnu odpoveď na otázku!"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapni pravilen odgovor na vprašanje!"
+          }
+        },
+        "sq" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prek përgjigjen e saktë që përputhet me pyetjen!"
+          }
+        },
+        "sr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Додирни тачан одговор на питање!"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tryck på det rätta svaret på frågan!"
+          }
+        },
+        "sw" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gusa jibu sahihi linalolingana na swali!"
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "கேள்விக்குப் பொருந்தும் சரியான பதிலைத் தட்டவும்!"
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ప్రశ్నకు సరిపోయే సరైన సమాధానంపై ట్యాప్ చేయండి!"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แตะคำตอบที่ถูกต้องตรงกับคำถาม!"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soruya uygun doğru cevaba dokun!"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سوئالغا ماس كېلىدىغان توغرا جاۋابنى بېسىڭ!"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Натисни на правильну відповідь на запитання!"
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سوال سے مطابقت رکھنے والے درست جواب پر ٹیپ کریں!"
+          }
+        },
+        "uz" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Savolga mos keladigan to‘g‘ri javobni bosing!"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạm vào đáp án đúng với câu hỏi!"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点击与问题匹配的正确答案！"
+          }
+        },
+        "zu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thepha impendulo efanele ehambisana nombuzo!"
           }
         }
       }
@@ -112175,10 +113096,466 @@
       "comment" : "Tutorial step 2: invite the player to choose a wrong answer and experience a fall.",
       "extractionState" : "manual",
       "localizations" : {
+        "af" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kyk nou wat gebeur as jy op die verkeerde antwoord tik!"
+          }
+        },
+        "am" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "አሁን የተሳሳተውን መልስ ስትነካ ምን እንደሚሆን ተመልከት!"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الآن، شاهد ما يحدث عندما تضغط على الإجابة الخاطئة!"
+          }
+        },
+        "as" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এতিয়া ভুল উত্তৰটোত টেপ কৰিলে কি হয় চাওক!"
+          }
+        },
+        "az" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İndi yanlış cavaba toxunanda nə baş verdiyinə bax!"
+          }
+        },
+        "be" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "А цяпер паглядзі, што адбудзецца, калі націснуць на няправільны адказ!"
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сега виж какво ще стане, ако докоснеш грешния отговор!"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এবার দেখুন, ভুল উত্তরে ট্যাপ করলে কী হয়!"
+          }
+        },
+        "bo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ད་ལྟ་ལན་ནོར་འཁྲུལ་ཅན་ལ་མནན་ན་ག་རེ་འབྱུང་མིན་ལྟོས།"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sada pogledaj šta se dešava kada dodirneš pogrešan odgovor!"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ara mira què passa quan toques la resposta incorrecta!"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teď se podívej, co se stane, když klepneš na špatnou odpověď!"
+          }
+        },
+        "cy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nawr, edrychwch beth sy’n digwydd pan fyddwch yn tapio’r ateb anghywir!"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se nu, hvad der sker, når du trykker på det forkerte svar!"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schau jetzt, was passiert, wenn du auf die falsche Antwort tippst!"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Τώρα δες τι συμβαίνει όταν πατάς τη λάθος απάντηση!"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Now, see what happens when you click on the wrong answer!"
+            "value" : "Now, see what happens when you tap the wrong answer!"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Ahora mira qué pasa cuando tocas la respuesta incorrecta!"
+          }
+        },
+        "et" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nüüd vaata, mis juhtub, kui puudutad vale vastust!"
+          }
+        },
+        "eu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orain, ikusi zer gertatzen den erantzun okerra sakatzen duzunean!"
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "حالا ببین وقتی روی پاسخ اشتباه بزنی چه اتفاقی می‌افتد!"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Katso nyt, mitä tapahtuu, kun napautat väärää vastausta!"
+          }
+        },
+        "fo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hygg nú, hvat hendir, tá ið tú trýstir á skeiva svarið!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regarde maintenant ce qui se passe quand tu appuies sur la mauvaise réponse !"
+          }
+        },
+        "ga" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anois, féach cad a tharlaíonn nuair a thapálann tú an freagra mícheart!"
+          }
+        },
+        "gl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agora mira que pasa cando tocas a resposta incorrecta!"
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "હવે જુઓ, ખોટા જવાબ પર ટૅપ કરવાથી શું થાય છે!"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "עכשיו נראה מה קורה כשמקישים על התשובה הלא נכונה!"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अब देखें कि गलत जवाब पर टैप करने से क्या होता है!"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sada pogledaj što se događa kada dodirneš pogrešan odgovor!"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Most nézd meg, mi történik, ha a rossz válaszra koppintasz!"
+          }
+        },
+        "hy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Հիմա տես, թե ինչ է պատահում, երբ սեղմում ես սխալ պատասխանը։"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sekarang, lihat apa yang terjadi saat kamu mengetuk jawaban yang salah!"
+          }
+        },
+        "is" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjáðu nú hvað gerist þegar þú pikkar á rangt svar!"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ora guarda cosa succede se tocchi la risposta sbagliata!"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次は、間違った答えをタップするとどうなるか見てみよう！"
+          }
+        },
+        "ka" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ახლა ნახე, რა მოხდება, თუ არასწორ პასუხს შეეხები!"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Енді қате жауапты басқанда не болатынын көр!"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ឥឡូវសូមមើលថាមានអ្វីកើតឡើង ពេលចុចលើចម្លើយខុស!"
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಈಗ ತಪ್ಪು ಉತ್ತರವನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿದಾಗ ಏನಾಗುತ್ತದೆ ಎಂದು ನೋಡಿ!"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이제 오답을 누르면 어떻게 되는지 확인해 보세요!"
+          }
+        },
+        "lo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ຕອນນີ້ ລອງເບິ່ງວ່າຈະເກີດຫຍັງຂຶ້ນເມື່ອແຕະຄຳຕອບທີ່ຜິດ!"
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dabar pažiūrėk, kas nutiks, kai bakstelėsi neteisingą atsakymą!"
+          }
+        },
+        "lv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagad paskaties, kas notiek, ja pieskaries nepareizajai atbildei!"
+          }
+        },
+        "mk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сега погледнете што се случува кога ќе го допрете погрешниот одговор!"
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ഇനി തെറ്റായ ഉത്തരത്തിൽ ടാപ്പ് ചെയ്താൽ എന്ത് സംഭവിക്കുമെന്ന് നോക്കൂ!"
+          }
+        },
+        "mn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Одоо буруу хариултыг товшвол юу болохыг хараарай!"
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आता चुकीच्या उत्तरावर टॅप केल्यावर काय होते ते पाहा!"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sekarang, lihat apa yang berlaku apabila anda mengetik jawapan yang salah!"
+          }
+        },
+        "my" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "အခု အဖြေမှားကို နှိပ်လိုက်ရင် ဘာဖြစ်မလဲ ကြည့်ပါ!"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se nå hva som skjer når du trykker på feil svar!"
+          }
+        },
+        "ne" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अब गलत उत्तरमा ट्याप गर्दा के हुन्छ, हेर्नुहोस्!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kijk nu wat er gebeurt als je op het verkeerde antwoord tikt!"
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଏବେ ଭୁଲ୍ ଉତ୍ତରରେ ଟ୍ୟାପ୍ କଲେ କଣ ହୁଏ ଦେଖନ୍ତୁ!"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਹੁਣ ਦੇਖੋ ਕਿ ਗਲਤ ਜਵਾਬ ਉੱਤੇ ਟੈਪ ਕਰਨ ਨਾਲ ਕੀ ਹੁੰਦਾ ਹੈ!"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teraz zobacz, co się stanie, gdy dotkniesz błędnej odpowiedzi!"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agora vê o que acontece quando tocas na resposta errada!"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acum vezi ce se întâmplă când atingi răspunsul greșit!"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Теперь посмотри, что будет, если нажать на неправильный ответ!"
+          }
+        },
+        "si" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "දැන් වැරදි පිළිතුර තට්ටු කළ විට කුමක් සිදුවේදැයි බලන්න!"
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teraz sa pozri, čo sa stane, keď ťukneš na nesprávnu odpoveď!"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zdaj poglej, kaj se zgodi, ko tapneš napačen odgovor!"
+          }
+        },
+        "sq" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tani shiko çfarë ndodh kur prek përgjigjen e gabuar!"
+          }
+        },
+        "sr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сада погледај шта се дешава када додирнеш погрешан одговор!"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se nu vad som händer när du trycker på fel svar!"
+          }
+        },
+        "sw" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sasa ona kinachotokea unapogusa jibu lisilo sahihi!"
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "இப்போது தவறான பதிலைத் தட்டினால் என்ன நடக்கிறது என்று பாருங்கள்!"
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ఇప్పుడు తప్పు సమాధానంపై ట్యాప్ చేస్తే ఏమవుతుందో చూడండి!"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ทีนี้ลองดูว่าจะเกิดอะไรขึ้นเมื่อแตะคำตอบที่ผิด!"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi yanlış cevaba dokunduğunda ne olduğunu gör!"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ئەمدى خاتا جاۋابنى باسقاندا نېمە ئىش بولىدىغانلىقىنى كۆرۈڭ!"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "А тепер подивись, що станеться, якщо натиснути на неправильну відповідь!"
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اب دیکھیں کہ غلط جواب پر ٹیپ کرنے سے کیا ہوتا ہے!"
+          }
+        },
+        "uz" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Endi noto‘g‘ri javobni bossangiz nima bo‘lishini ko‘ring!"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bây giờ, hãy xem điều gì xảy ra khi bạn chạm vào đáp án sai!"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现在，点击错误答案，看看会发生什么！"
+          }
+        },
+        "zu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manje bona ukuthi kwenzekani uma uthepha impendulo engalungile!"
           }
         }
       }
@@ -112187,10 +113564,466 @@
       "comment" : "Tutorial step 4: reveal the prize waiting at the finish line.",
       "extractionState" : "manual",
       "localizations" : {
+        "af" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kyk na jou telling regs bo om te sien hoeveel jy nog nodig het om die spesiale prys by die eindstreep te bereik. Sterkte!"
+          }
+        },
+        "am" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "በመጨረሻው መስመር ያለውን ልዩ ሽልማት ለማግኘት ምን ያህል እንደሚቀርህ ለማወቅ በላይኛው ቀኝ ጥግ ያለውን ነጥብህን ተመልከት። መልካም ዕድል!"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحقق من نتيجتك في الزاوية العلوية اليمنى لمعرفة كم تحتاج بعد للوصول إلى الجائزة الخاصة عند خط النهاية. حظًا موفقًا!"
+          }
+        },
+        "as" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "শেষ ৰেখাত থকা বিশেষ পুৰস্কাৰটো পাবলৈ আৰু কিমান লাগিব চাবলৈ ওপৰৰ সোঁফালৰ চুকত থকা আপোনাৰ স্ক’ৰ চাওক। শুভকামনা!"
+          }
+        },
+        "az" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finiş xəttindəki xüsusi mükafata çatmaq üçün daha nə qədər lazım olduğunu görmək üçün yuxarı sağ küncdəki xalına bax. Uğurlar!"
+          }
+        },
+        "be" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Паглядзі на свае балы ў правым верхнім куце, каб даведацца, колькі яшчэ трэба да асаблівага прыза на фінішы. Поспехаў!"
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провери резултата си в горния десен ъгъл, за да видиш колко още ти трябва до специалната награда на финала. Успех!"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ফিনিশ লাইনে থাকা বিশেষ পুরস্কার পেতে আর কতটা বাকি, তা জানতে ওপরের ডান কোণে আপনার স্কোর দেখুন। শুভকামনা!"
+          }
+        },
+        "bo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "མཐའ་མའི་ཐིག་ལ་ཡོད་པའི་བྱ་དགའ་དམིགས་བསལ་དེ་ཐོབ་པར་ད་དུང་ག་ཚོད་དགོས་མིན་ཤེས་པའི་ཆེད། གཡས་ཕྱོགས་གོང་གི་ཟུར་ལ་ཡོད་པའི་སྐར་གྲངས་ལ་ལྟོས། ལམ་འགྲོ་ཡོང་བར་ཤོག"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pogledaj svoj rezultat u gornjem desnom uglu da vidiš koliko ti još treba do posebne nagrade na cilju. Sretno!"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consulta la teva puntuació a la cantonada superior dreta per veure quant et falta per arribar al premi especial de la meta. Bona sort!"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podívej se na své skóre v pravém horním rohu a zjisti, kolik ti ještě chybí ke speciální odměně v cíli. Hodně štěstí!"
+          }
+        },
+        "cy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edrychwch ar eich sgôr yn y gornel dde uchaf i weld faint mwy sydd ei angen i gyrraedd y wobr arbennig wrth y llinell derfyn. Pob lwc!"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tjek din score i øverste højre hjørne for at se, hvor meget du mangler for at nå den særlige præmie ved målstregen. Held og lykke!"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sieh dir deinen Punktestand oben rechts an, um zu erfahren, wie viel dir noch bis zum besonderen Preis an der Ziellinie fehlt. Viel Glück!"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Δες τη βαθμολογία σου πάνω δεξιά για να μάθεις πόσο ακόμα χρειάζεσαι για να φτάσεις στο ξεχωριστό έπαθλο στη γραμμή τερματισμού. Καλή τύχη!"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Check your score in the top right corner to see how many more you need to reach the special prize at the finish line. Good luck!"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consulta tu puntuación en la esquina superior derecha para ver cuánto te falta para conseguir el premio especial en la meta. ¡Buena suerte!"
+          }
+        },
+        "et" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaata oma punktisummat paremas ülanurgas, et näha, kui palju sul veel finišis oleva eriauhinnani puudu jääb. Edu!"
+          }
+        },
+        "eu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Begiratu goiko eskuineko izkinako puntuazioari, helmugako sari berezia lortzeko zenbat falta zaizun jakiteko. Zorte on!"
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "امتیازت را در گوشهٔ بالا سمت راست ببین تا بفهمی برای رسیدن به جایزهٔ ویژه در خط پایان چقدر دیگر لازم داری. موفق باشی!"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarkista pistemääräsi oikeasta yläkulmasta nähdäksesi, kuinka paljon tarvitset vielä maaliviivalla odottavaan erikoispalkintoon. Onnea!"
+          }
+        },
+        "fo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hygg at stigatalinum ovast í høgra horni fyri at síggja, hvussu nógv tær vantar fyri at fáa serliga vinningin við málstrikuna. Góða eydnu!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regarde ton score en haut à droite pour voir combien il te manque pour atteindre le prix spécial à la ligne d’arrivée. Bonne chance !"
+          }
+        },
+        "ga" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Féach ar do scór sa chúinne uachtarach ar dheis le fáil amach cé mhéad eile atá uait chun an duais speisialta ag an líne chríche a bhaint amach. Ádh mór!"
+          }
+        },
+        "gl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consulta a túa puntuación na esquina superior dereita para ver canto che falta para acadar o premio especial na meta. Boa sorte!"
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ફિનિશ લાઇન પરના ખાસ ઇનામ સુધી પહોંચવા માટે હજી કેટલું જોઈએ છે તે જોવા ઉપર જમણા ખૂણામાં તમારો સ્કોર જુઓ. શુભેચ્છાઓ!"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בדקו את הניקוד בפינה הימנית העליונה כדי לראות כמה עוד חסר לכם כדי להגיע לפרס המיוחד בקו הסיום. בהצלחה!"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "फ़िनिश लाइन पर मिलने वाले खास इनाम तक पहुँचने के लिए अभी कितना और चाहिए, यह जानने के लिए ऊपर दाईं ओर अपना स्कोर देखें। शुभकामनाएँ!"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provjeri svoj rezultat u gornjem desnom kutu kako bi vidio koliko ti još treba do posebne nagrade na cilju. Sretno!"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nézd meg a pontszámodat a jobb felső sarokban, hogy lásd, mennyi kell még a célvonalnál váró különleges nyereményhez. Sok szerencsét!"
+          }
+        },
+        "hy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Նայիր վերևի աջ անկյունում գտնվող քո միավորներին՝ տեսնելու, թե դեռ որքան է պետք վերջնագծի հատուկ մրցանակին հասնելու համար։ Հաջողություն։"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lihat skormu di pojok kanan atas untuk mengetahui berapa banyak lagi yang kamu butuhkan agar bisa meraih hadiah spesial di garis finis. Semoga berhasil!"
+          }
+        },
+        "is" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skoðaðu stigin þín efst í hægra horninu til að sjá hversu mikið vantar upp á að þú náir sérstöku verðlaununum við marklínuna. Gangi þér vel!"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controlla il punteggio in alto a destra per scoprire quanto ti manca per raggiungere il premio speciale al traguardo. Buona fortuna!"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右上のスコアを確認して、ゴールにある特別な賞品まであとどれくらい必要か確かめよう。がんばって！"
+          }
+        },
+        "ka" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "შეხედე შენს ქულას ზედა მარჯვენა კუთხეში, რათა გაიგო, კიდევ რამდენი გჭირდება ფინიშთან განსაკუთრებული პრიზის მისაღებად. წარმატებები!"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мәре сызығындағы арнайы жүлдеге жету үшін тағы қанша қажет екенін білу үшін жоғарғы оң жақ бұрыштағы ұпайыңа қара. Сәттілік!"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មើលពិន្ទុរបស់អ្នកនៅជ្រុងខាងស្តាំផ្នែកខាងលើ ដើម្បីដឹងថាត្រូវការប៉ុន្មានទៀតដើម្បីទទួលបានរង្វាន់ពិសេសនៅខ្សែបញ្ចប់។ សូមសំណាងល្អ!"
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಅಂತಿಮ ಗೆರೆಯಲ್ಲಿರುವ ವಿಶೇಷ ಬಹುಮಾನವನ್ನು ತಲುಪಲು ಇನ್ನೆಷ್ಟು ಬೇಕು ಎಂಬುದನ್ನು ತಿಳಿಯಲು ಮೇಲಿನ ಬಲ ಮೂಲೆಯಲ್ಲಿರುವ ನಿಮ್ಮ ಸ್ಕೋರ್ ನೋಡಿ. ಶುಭವಾಗಲಿ!"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "오른쪽 위의 점수를 확인해 결승선의 특별 보상을 받으려면 얼마나 더 필요한지 알아보세요. 행운을 빌어요!"
+          }
+        },
+        "lo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ເບິ່ງຄະແນນຂອງເຈົ້າຢູ່ມຸມຂວາເທິງ ເພື່ອຮູ້ວ່າຍັງຕ້ອງການອີກເທົ່າໃດຈຶ່ງຈະໄດ້ລາງວັນພິເສດທີ່ເສັ້ນໄຊ. ໂຊກດີ!"
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pažvelk į savo taškus viršutiniame dešiniajame kampe ir sužinok, kiek dar trūksta iki specialaus prizo finišo tiesiojoje. Sėkmės!"
+          }
+        },
+        "lv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apskati savu rezultātu augšējā labajā stūrī, lai uzzinātu, cik vēl pietrūkst līdz īpašajai balvai finiša taisnē. Lai veicas!"
+          }
+        },
+        "mk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверете го резултатот во горниот десен агол за да видите уште колку ви треба до специјалната награда на целта. Со среќа!"
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ഫിനിഷ് ലൈനിലെ പ്രത്യേക സമ്മാനം നേടാൻ ഇനി എത്ര കൂടി വേണമെന്ന് അറിയാൻ മുകളിൽ വലത് മൂലയിലുള്ള നിങ്ങളുടെ സ്കോർ നോക്കൂ. ആശംസകൾ!"
+          }
+        },
+        "mn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Барианы шугам дээрх тусгай шагналыг авахад хэр их дутуу байгааг мэдэхийн тулд баруун дээд буланд байгаа оноогоо хараарай. Амжилт хүсье!"
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अंतिम रेषेवरील खास बक्षीस मिळवण्यासाठी अजून किती आवश्यक आहे हे पाहण्यासाठी वरच्या उजव्या कोपऱ्यातील तुमचा स्कोअर पाहा. शुभेच्छा!"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Semak skor anda di penjuru kanan sebelah atas untuk melihat berapa banyak lagi yang diperlukan bagi mendapatkan hadiah istimewa di garisan penamat. Semoga berjaya!"
+          }
+        },
+        "my" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ပန်းဝင်မျဉ်းမှာရှိတဲ့ အထူးဆုကို ရဖို့ ဘယ်လောက်လိုသေးလဲ သိရန် ညာဘက်အပေါ်ထောင့်က သင့်ရမှတ်ကို ကြည့်ပါ။ ကံကောင်းပါစေ!"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekk poengsummen din øverst til høyre for å se hvor mye du mangler for å nå spesialpremien ved målstreken. Lykke til!"
+          }
+        },
+        "ne" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अन्तिम रेखामा रहेको विशेष पुरस्कार पाउन अझै कति चाहिन्छ भनेर थाहा पाउन माथिल्लो दायाँ कुनामा आफ्नो स्कोर हेर्नुहोस्। शुभकामना!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kijk rechtsboven naar je score om te zien hoeveel je nog nodig hebt om de speciale prijs bij de finish te bereiken. Veel succes!"
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଫିନିଶ୍ ଲାଇନ୍‌ରେ ଥିବା ବିଶେଷ ପୁରସ୍କାର ପାଇବାକୁ ଆଉ କେତେ ଦରକାର ଜାଣିବା ପାଇଁ ଉପର ଡାହାଣ କୋଣରେ ନିଜ ସ୍କୋର୍ ଦେଖନ୍ତୁ। ଶୁଭେଚ୍ଛା!"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਫਿਨਿਸ਼ ਲਾਈਨ ਉੱਤੇ ਖ਼ਾਸ ਇਨਾਮ ਤੱਕ ਪਹੁੰਚਣ ਲਈ ਹੋਰ ਕਿੰਨਾ ਚਾਹੀਦਾ ਹੈ, ਇਹ ਦੇਖਣ ਲਈ ਉੱਪਰ ਸੱਜੇ ਕੋਨੇ ਵਿੱਚ ਆਪਣਾ ਸਕੋਰ ਦੇਖੋ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ!"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprawdź swój wynik w prawym górnym rogu, aby zobaczyć, ile jeszcze brakuje Ci do specjalnej nagrody na mecie. Powodzenia!"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consulta a tua pontuação no canto superior direito para veres quanto te falta para alcançar o prémio especial na meta. Boa sorte!"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifică-ți scorul din colțul din dreapta sus ca să vezi cât îți mai trebuie pentru premiul special de la linia de sosire. Mult succes!"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Посмотри на свой счёт в правом верхнем углу, чтобы узнать, сколько ещё нужно до особого приза на финише. Удачи!"
+          }
+        },
+        "si" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "අවසන් රේඛාවේ ඇති විශේෂ ත්‍යාගය ලබා ගැනීමට තවත් කොපමණ අවශ්‍යදැයි දැන ගැනීමට ඉහළ දකුණු කෙළවරේ ඔබේ ලකුණු බලන්න. සුබ පැතුම්!"
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozri si svoje skóre v pravom hornom rohu a zisti, koľko ti ešte chýba k špeciálnej odmene v cieli. Veľa šťastia!"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preveri rezultat v zgornjem desnem kotu in poglej, koliko ti še manjka do posebne nagrade na cilju. Srečno!"
+          }
+        },
+        "sq" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shiko rezultatin tënd në këndin e sipërm djathtas për të parë sa të duhen ende për të arritur çmimin special në vijën e finishit. Paç fat!"
+          }
+        },
+        "sr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Погледај свој резултат у горњем десном углу да видиш колико ти још треба до посебне награде на циљу. Срећно!"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolla din poäng uppe till höger för att se hur mycket som återstår innan du når specialpriset vid mållinjen. Lycka till!"
+          }
+        },
+        "sw" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angalia alama zako kwenye kona ya juu kulia ili ujue ni kiasi gani kimebaki kufikia zawadi maalum kwenye mstari wa mwisho. Kila la heri!"
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "இறுதிக் கோட்டில் உள்ள சிறப்புப் பரிசை அடைய இன்னும் எவ்வளவு தேவை என்பதை அறிய மேலே வலது மூலையில் உள்ள உங்கள் மதிப்பெண்ணைப் பாருங்கள். வாழ்த்துகள்!"
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ముగింపు రేఖ వద్ద ఉన్న ప్రత్యేక బహుమతిని పొందడానికి ఇంకా ఎంత అవసరమో తెలుసుకోవడానికి ఎగువ కుడి మూలలో మీ స్కోర్‌ను చూడండి. శుభాకాంక్షలు!"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ดูคะแนนของคุณที่มุมขวาบน เพื่อดูว่าต้องทำอีกเท่าไรจึงจะได้รับรางวัลพิเศษที่เส้นชัย ขอให้โชคดี!"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitiş çizgisindeki özel ödüle ulaşmak için daha ne kadar gerektiğini görmek üzere sağ üst köşedeki puanına bak. Bol şans!"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ئاخىرقى سىزىقتىكى ئالاھىدە مۇكاپاتقا ئېرىشىش ئۈچۈن يەنە قانچىلىك كېرەكلىكىنى بىلىش ئۈچۈن ئوڭ ئۈستى بۇلۇڭدىكى نومۇرىڭىزغا قاراڭ. ئامەت تىلەيمىز!"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевір свій рахунок у верхньому правому куті, щоб дізнатися, скільки ще потрібно до особливого призу на фініші. Удачі!"
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اختتامی لکیر پر موجود خصوصی انعام حاصل کرنے کے لیے مزید کتنے اسکور کی ضرورت ہے، یہ جاننے کے لیے اوپر دائیں کونے میں اپنا اسکور دیکھیں۔ نیک تمنائیں!"
+          }
+        },
+        "uz" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marradagi maxsus sovringa erishish uchun yana qancha kerakligini bilish maqsadida yuqori o‘ng burchakdagi ballingizga qarang. Omad!"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xem điểm số ở góc trên bên phải để biết bạn cần thêm bao nhiêu nữa mới nhận được phần thưởng đặc biệt ở vạch đích. Chúc may mắn!"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看右上角的分数，看看距离终点线的特别奖励还差多少。祝你好运！"
+          }
+        },
+        "zu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bheka amaphuzu akho ekhoneni eliphezulu kwesokudla ukuze ubone ukuthi kusasele malini ngaphambi kokuthola umklomelo okhethekile entanjeni yokugcina. Inhlanhla!"
           }
         }
       }
@@ -112199,10 +114032,466 @@
       "comment" : "Tutorial step 3: explain unlimited lives and the newly-started timer.",
       "extractionState" : "manual",
       "localizations" : {
+        "af" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moenie bekommerd wees nie, jy het onbeperkte lewens! Probeer so ver as moontlik kom voordat die tyd uitloop."
+          }
+        },
+        "am" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "አትጨነቅ፣ ያልተገደበ ሕይወት አለህ! ጊዜው ከማለቁ በፊት በተቻለ መጠን ሩቅ ለመድረስ ሞክር።"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا تقلق، لديك عدد غير محدود من الأرواح! حاول الوصول إلى أبعد نقطة ممكنة قبل انتهاء الوقت."
+          }
+        },
+        "as" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "চিন্তা নকৰিব, আপোনাৰ অসীম জীৱন আছে! সময় শেষ হোৱাৰ আগতে যিমান পাৰি সিমান দূৰ যাবলৈ চেষ্টা কৰক।"
+          }
+        },
+        "az" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narahat olma, limitsiz canın var! Vaxt bitməmiş mümkün qədər irəli getməyə çalış."
+          }
+        },
+        "be" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не хвалюйся, у цябе неабмежаваная колькасць жыццяў! Паспрабуй прайсці як мага далей, пакуль не скончыўся час."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спокойно, имаш неограничен брой животи! Опитай се да стигнеш възможно най-далеч, преди времето да изтече."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "চিন্তা নেই, আপনার অসীম জীবন আছে! সময় শেষ হওয়ার আগে যতটা সম্ভব এগিয়ে যাওয়ার চেষ্টা করুন।"
+          }
+        },
+        "bo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "སེམས་ཁྲལ་མ་བྱེད། ཁྱེད་ལ་ཚེ་སྲོག་ཚད་མེད་ཡོད། དུས་ཚོད་མ་རྫོགས་གོང་ལ་གང་ཐུབ་ཀྱིས་ཐག་རིང་དུ་སླེབས་པར་འབད་རྩོལ་བྱོས།"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bez brige, imaš neograničen broj života! Pokušaj stići što dalje prije nego što vrijeme istekne."
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No pateixis, tens vides il·limitades! Intenta arribar tan lluny com puguis abans que s’acabi el temps."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neboj se, máš neomezený počet životů! Zkus se dostat co nejdál, než vyprší čas."
+          }
+        },
+        "cy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peidiwch â phoeni, mae gennych fywydau diderfyn! Ceisiwch fynd mor bell â phosibl cyn i’r amser ddod i ben."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bare rolig, du har ubegrænset antal liv! Prøv at nå så langt som muligt, før tiden løber ud."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Sorge, du hast unbegrenzt viele Leben! Versuche, so weit wie möglich zu kommen, bevor die Zeit abläuft."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Μην ανησυχείς, έχεις απεριόριστες ζωές! Προσπάθησε να φτάσεις όσο πιο μακριά μπορείς πριν τελειώσει ο χρόνος."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "No worries, you have unlimited lives! Try to get as far as you can before the timer runs out."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡No te preocupes, tienes vidas ilimitadas! Intenta llegar lo más lejos posible antes de que se acabe el tiempo."
+          }
+        },
+        "et" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ära muretse, sul on piiramatult elusid! Püüa enne aja lõppemist võimalikult kaugele jõuda."
+          }
+        },
+        "eu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lasai, bizitza mugagabeak dituzu! Saiatu ahalik eta urrutien iristen denbora agortu aurretik."
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "نگران نباش، جان نامحدود داری! سعی کن قبل از تمام شدن زمان تا جایی که می‌توانی پیش بروی."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei hätää, sinulla on rajattomasti elämiä! Yritä päästä mahdollisimman pitkälle ennen kuin aika loppuu."
+          }
+        },
+        "fo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver ikki bangin, tú hevur óavmarkað lív! Royn at koma so langt sum gjørligt, áðrenn tíðin rennur út."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas d’inquiétude, tu as un nombre illimité de vies ! Essaie d’aller le plus loin possible avant la fin du temps imparti."
+          }
+        },
+        "ga" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ná bí buartha, tá líon neamhtheoranta beatha agat! Déan iarracht dul chomh fada agus is féidir sula n-imeoidh an t-am."
+          }
+        },
+        "gl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non te preocupes, tes vidas ilimitadas! Intenta chegar o máis lonxe posible antes de que se esgote o tempo."
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ચિંતા ન કરો, તમારી પાસે અમર્યાદિત જીવન છે! સમય પૂરો થાય તે પહેલાં શક્ય હોય તેટલા આગળ જવાનો પ્રયાસ કરો."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "אין מה לדאוג, יש לכם חיים ללא הגבלה! נסו להגיע הכי רחוק שאפשר לפני שייגמר הזמן."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "चिंता न करें, आपके पास अनगिनत ज़िंदगियाँ हैं! समय खत्म होने से पहले जितना हो सके उतना आगे बढ़ने की कोशिश करें।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bez brige, imaš neograničen broj života! Pokušaj stići što dalje prije isteka vremena."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne aggódj, korlátlan számú életed van! Próbálj minél messzebbre jutni, mielőtt lejár az idő."
+          }
+        },
+        "hy" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Մի՛ անհանգստացիր, դու անսահմանափակ կյանքեր ունես։ Փորձիր հնարավորինս հեռու հասնել, մինչև ժամանակը սպառվի։"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tenang, nyawamu tidak terbatas! Cobalah melaju sejauh mungkin sebelum waktu habis."
+          }
+        },
+        "is" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engar áhyggjur, þú átt ótakmarkað mörg líf! Reyndu að komast eins langt og þú getur áður en tíminn rennur út."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non preoccuparti, hai vite illimitate! Cerca di arrivare il più lontano possibile prima che scada il tempo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心配しないで！ライフは無制限だよ。時間切れになる前に、できるだけ遠くまで進もう！"
+          }
+        },
+        "ka" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "არ ინერვიულო, სიცოცხლეების რაოდენობა შეუზღუდავია! სცადე, დროის ამოწურვამდე რაც შეიძლება შორს მიხვიდე."
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уайымдама, сенде шексіз өмір бар! Уақыт біткенше мүмкіндігінше алысқа жетуге тырыс."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កុំបារម្ភ អ្នកមានជីវិតមិនកំណត់ទេ! ព្យាយាមទៅឱ្យបានឆ្ងាយតាមដែលអាចធ្វើបាន មុនពេលអស់ម៉ោង។"
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಚಿಂತಿಸಬೇಡಿ, ನಿಮಗೆ ಮಿತಿಯಿಲ್ಲದ ಜೀವಗಳಿವೆ! ಸಮಯ ಮುಗಿಯುವ ಮೊದಲು ಸಾಧ್ಯವಾದಷ್ಟು ದೂರ ಹೋಗಲು ಪ್ರಯತ್ನಿಸಿ."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "걱정하지 마세요. 목숨은 무제한이에요! 시간이 끝나기 전에 최대한 멀리 가 보세요."
+          }
+        },
+        "lo" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ບໍ່ຕ້ອງກັງວົນ ເຈົ້າມີຊີວິດບໍ່ຈຳກັດ! ພະຍາຍາມໄປໃຫ້ໄດ້ໄກທີ່ສຸດກ່ອນໝົດເວລາ."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nesijaudink, turi neribotą skaičių gyvybių! Pasistenk nukeliauti kuo toliau, kol nesibaigė laikas."
+          }
+        },
+        "lv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neuztraucies, tev ir neierobežots dzīvību skaits! Centies tikt pēc iespējas tālāk, pirms beidzas laiks."
+          }
+        },
+        "mk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не грижете се, имате неограничен број животи! Обидете се да стигнете што подалеку пред да истече времето."
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "വിഷമിക്കേണ്ട, നിങ്ങൾക്ക് പരിധിയില്ലാത്ത ലൈഫുകളുണ്ട്! സമയം തീരുന്നതിന് മുമ്പ് കഴിയുന്നത്ര ദൂരം എത്താൻ ശ്രമിക്കൂ."
+          }
+        },
+        "mn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Санаа зоволтгүй, чамд хязгааргүй олон амь бий! Цаг дуусахаас өмнө аль болох хол явахыг хичээгээрэй."
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "काळजी करू नका, तुमच्याकडे अमर्याद जीव आहेत! वेळ संपण्यापूर्वी शक्य तितके पुढे जाण्याचा प्रयत्न करा."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jangan risau, anda mempunyai nyawa tanpa had! Cuba pergi sejauh mungkin sebelum masa tamat."
+          }
+        },
+        "my" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "စိတ်မပူပါနဲ့၊ သင့်မှာ အသက်အကန့်အသတ်မရှိပါဘူး! အချိန်မကုန်ခင် တတ်နိုင်သမျှ အဝေးဆုံးရောက်အောင် ကြိုးစားပါ။"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen grunn til bekymring, du har ubegrenset med liv! Prøv å komme så langt som mulig før tiden renner ut."
+          }
+        },
+        "ne" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "चिन्ता नगर्नुहोस्, तपाईंसँग असीमित जीवन छन्! समय सकिनुअघि सकेसम्म टाढा पुग्ने प्रयास गर्नुहोस्।"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geen zorgen, je hebt onbeperkt levens! Probeer zo ver mogelijk te komen voordat de tijd om is."
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଚିନ୍ତା କରନ୍ତୁ ନାହିଁ, ଆପଣଙ୍କ ପାଖରେ ଅସୀମିତ ଜୀବନ ଅଛି! ସମୟ ସରିବା ପୂର୍ବରୁ ଯେତେ ଦୂର ସମ୍ଭବ ଯିବାକୁ ଚେଷ୍ଟା କରନ୍ତୁ।"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਫ਼ਿਕਰ ਨਾ ਕਰੋ, ਤੁਹਾਡੇ ਕੋਲ ਬੇਅੰਤ ਜਾਨਾਂ ਹਨ! ਸਮਾਂ ਖ਼ਤਮ ਹੋਣ ਤੋਂ ਪਹਿਲਾਂ ਜਿੰਨਾ ਹੋ ਸਕੇ ਅੱਗੇ ਵਧਣ ਦੀ ਕੋਸ਼ਿਸ਼ ਕਰੋ।"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bez obaw, masz nieograniczoną liczbę żyć! Spróbuj dotrzeć jak najdalej, zanim skończy się czas."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não te preocupes, tens vidas ilimitadas! Tenta chegar o mais longe possível antes que o tempo acabe."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nu-ți face griji, ai vieți nelimitate! Încearcă să ajungi cât mai departe înainte să expire timpul."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не волнуйся, у тебя бесконечное количество жизней! Постарайся пройти как можно дальше, пока не истекло время."
+          }
+        },
+        "si" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "කරදර වෙන්න එපා, ඔබට සීමාවක් නැති ජීවිත තියෙනවා! කාලය අවසන් වීමට පෙර හැකි තරම් දුර යන්න උත්සාහ කරන්න."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neboj sa, máš neobmedzený počet životov! Skús sa dostať čo najďalej, kým nevyprší čas."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brez skrbi, imaš neomejeno število življenj! Poskusi priti čim dlje, preden se čas izteče."
+          }
+        },
+        "sq" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mos u shqetëso, ke jetë të pakufizuara! Përpiqu të shkosh sa më larg para se të mbarojë koha."
+          }
+        },
+        "sr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не брини, имаш неограничен број живота! Покушај да стигнеш што даље пре него што време истекне."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen fara, du har obegränsat med liv! Försök komma så långt som möjligt innan tiden tar slut."
+          }
+        },
+        "sw" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usijali, una maisha yasiyo na kikomo! Jaribu kufika mbali kadiri uwezavyo kabla ya muda kuisha."
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "கவலை வேண்டாம், உங்களுக்கு வரம்பற்ற உயிர்கள் உள்ளன! நேரம் முடிவதற்குள் முடிந்தவரை தொலைவு செல்ல முயற்சியுங்கள்."
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "కంగారు పడకండి, మీకు అపరిమిత జీవితాలు ఉన్నాయి! సమయం ముగిసేలోపు వీలైనంత దూరం వెళ్లడానికి ప్రయత్నించండి."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่ต้องกังวล คุณมีชีวิตไม่จำกัด! พยายามไปให้ไกลที่สุดก่อนหมดเวลา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Endişelenme, sınırsız canın var! Süre dolmadan olabildiğince ilerlemeye çalış."
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ئەنسىرىمەڭ، سىزنىڭ چەكسىز ھاياتىڭىز بار! ۋاقىت توشۇشتىن بۇرۇن ئىمكانقەدەر يىراققا بېرىشقا تىرىشىڭ."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не хвилюйся, у тебе необмежена кількість життів! Спробуй пройти якомога далі, поки не закінчився час."
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فکر نہ کریں، آپ کے پاس لامحدود زندگیاں ہیں! وقت ختم ہونے سے پہلے جہاں تک ممکن ہو پہنچنے کی کوشش کریں۔"
+          }
+        },
+        "uz" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xavotir olmang, jonlaringiz cheksiz! Vaqt tugashidan oldin imkon qadar uzoqqa borishga harakat qiling."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đừng lo, bạn có số mạng không giới hạn! Hãy cố đi xa nhất có thể trước khi hết giờ."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "别担心，你有无限次生命！争取在倒计时结束前走得越远越好。"
+          }
+        },
+        "zu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ungakhathazeki, unezimpilo ezingenamkhawulo! Zama ukufika kude ngangokunokwenzeka ngaphambi kokuphela kwesikhathi."
           }
         }
       }

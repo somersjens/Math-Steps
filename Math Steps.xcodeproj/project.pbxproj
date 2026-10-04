@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A17FA1103075A00100C0D001 /* sfx_fall_down.caf in Resources */ = {isa = PBXBuildFile; fileRef = A17FA1113075A00100C0D001 /* sfx_fall_down.caf */; };
+		A17FA1123075A00100C0D001 /* sfx_point_up.caf in Resources */ = {isa = PBXBuildFile; fileRef = A17FA1133075A00100C0D001 /* sfx_point_up.caf */; };
+		A7C0DE20006C406F0035F17C /* GoalHeavenIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */; };
+		A7C0DE20106C406F0035F17C /* GoalHeavenScenesA.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */; };
+		A7C0DE20206C406F0035F17C /* GoalHeavenScenesB.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */; };
+		A7C0DE20306C406F0035F17C /* GoalHeavenParticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */; };
+		A7C0DE20406C406F0035F17C /* GoalHeavenSkyIslands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10406C406F0035F17C /* GoalHeavenSkyIslands.swift */; };
 		AA00000130A0000000000001 /* MathStepsGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000230A0000000000002 /* MathStepsGame.swift */; };
 		F95BEE71306C406F0035F17C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE5B306C406F0035F17C /* SettingsView.swift */; };
 		F95BEE72306C406F0035F17C /* QuestionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE27306C406F0035F17C /* QuestionGenerator.swift */; };
@@ -25,10 +32,6 @@
 		F95BEE7F306C406F0035F17C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE6F306C406F0035F17C /* Theme.swift */; };
 		F95BEE80306C406F0035F17C /* ElephantChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE2B306C406F0035F17C /* ElephantChallengeApp.swift */; };
 		F95BEE81306C406F0035F17C /* HabitatBrush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE36306C406F0035F17C /* HabitatBrush.swift */; };
-		A7C0DE20006C406F0035F17C /* GoalHeavenIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */; };
-		A7C0DE20106C406F0035F17C /* GoalHeavenScenesA.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */; };
-		A7C0DE20206C406F0035F17C /* GoalHeavenScenesB.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */; };
-		A7C0DE20306C406F0035F17C /* GoalHeavenParticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */; };
 		F95BEE82306C406F0035F17C /* PromoTourSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE4E306C406F0035F17C /* PromoTourSupport.swift */; };
 		F95BEE83306C406F0035F17C /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE57306C406F0035F17C /* ResultView.swift */; };
 		F95BEE84306C406F0035F17C /* MemoryGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE23306C406F0035F17C /* MemoryGame.swift */; };
@@ -88,7 +91,6 @@
 		F95BEEBA306C406F0035F17C /* sfx_level_complete.caf in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE65306C406F0035F17C /* sfx_level_complete.caf */; };
 		F95BEEBB306C406F0035F17C /* sfx_correct.caf in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE61306C406F0035F17C /* sfx_correct.caf */; };
 		F95BEEBC306C406F0035F17C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE19306C406F0035F17C /* Assets.xcassets */; };
-		F95BEEBD306C406F0035F17C /* sfx_button_press.caf in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE5C306C406F0035F17C /* sfx_button_press.caf */; };
 		F95BEEBE306C406F0035F17C /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE3E306C406F0035F17C /* InfoPlist.xcstrings */; };
 		F95BEEBF306C406F0035F17C /* sfx_card_reveal.caf in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE5F306C406F0035F17C /* sfx_card_reveal.caf */; };
 		F95BEEC0306C406F0035F17C /* sfx_session_start.caf in Resources */ = {isa = PBXBuildFile; fileRef = F95BEE69306C406F0035F17C /* sfx_session_start.caf */; };
@@ -102,6 +104,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A17FA1113075A00100C0D001 /* sfx_fall_down.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_fall_down.caf; sourceTree = "<group>"; };
+		A17FA1133075A00100C0D001 /* sfx_point_up.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_point_up.caf; sourceTree = "<group>"; };
+		A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenIsland.swift; sourceTree = "<group>"; };
+		A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesA.swift; sourceTree = "<group>"; };
+		A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesB.swift; sourceTree = "<group>"; };
+		A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenParticles.swift; sourceTree = "<group>"; };
+		A7C0DE10406C406F0035F17C /* GoalHeavenSkyIslands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenSkyIslands.swift; sourceTree = "<group>"; };
 		AA00000230A0000000000002 /* MathStepsGame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathStepsGame.swift; sourceTree = "<group>"; };
 		F95BEE06306C404B0035F17C /* Math Steps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Math Steps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F95BEE16306C406F0035F17C /* AnimalHabitats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimalHabitats.swift; sourceTree = "<group>"; };
@@ -136,10 +145,6 @@
 		F95BEE34306C406F0035F17C /* FrogPondHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrogPondHabitat.swift; sourceTree = "<group>"; };
 		F95BEE35306C406F0035F17C /* HabitatAmbience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatAmbience.swift; sourceTree = "<group>"; };
 		F95BEE36306C406F0035F17C /* HabitatBrush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatBrush.swift; sourceTree = "<group>"; };
-		A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenIsland.swift; sourceTree = "<group>"; };
-		A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesA.swift; sourceTree = "<group>"; };
-		A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenScenesB.swift; sourceTree = "<group>"; };
-		A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenParticles.swift; sourceTree = "<group>"; };
 		F95BEE37306C406F0035F17C /* HabitatGalleryQAView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitatGalleryQAView.swift; sourceTree = "<group>"; };
 		F95BEE38306C406F0035F17C /* LionSavannaHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LionSavannaHabitat.swift; sourceTree = "<group>"; };
 		F95BEE39306C406F0035F17C /* OctopusReefHabitat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OctopusReefHabitat.swift; sourceTree = "<group>"; };
@@ -175,7 +180,6 @@
 		F95BEE59306C406F0035F17C /* score_increase.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = score_increase.caf; sourceTree = "<group>"; };
 		F95BEE5A306C406F0035F17C /* score_increase_main.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = score_increase_main.caf; sourceTree = "<group>"; };
 		F95BEE5B306C406F0035F17C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		F95BEE5C306C406F0035F17C /* sfx_button_press.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_button_press.caf; sourceTree = "<group>"; };
 		F95BEE5D306C406F0035F17C /* sfx_card_count.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_card_count.caf; sourceTree = "<group>"; };
 		F95BEE5E306C406F0035F17C /* sfx_card_flight.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_card_flight.caf; sourceTree = "<group>"; };
 		F95BEE5F306C406F0035F17C /* sfx_card_reveal.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_card_reveal.caf; sourceTree = "<group>"; };
@@ -255,12 +259,12 @@
 				F95BEE59306C406F0035F17C /* score_increase.caf */,
 				F95BEE5A306C406F0035F17C /* score_increase_main.caf */,
 				F95BEE5B306C406F0035F17C /* SettingsView.swift */,
-				F95BEE5C306C406F0035F17C /* sfx_button_press.caf */,
 				F95BEE5D306C406F0035F17C /* sfx_card_count.caf */,
 				F95BEE5E306C406F0035F17C /* sfx_card_flight.caf */,
 				F95BEE5F306C406F0035F17C /* sfx_card_reveal.caf */,
 				F95BEE60306C406F0035F17C /* sfx_character_unlock.caf */,
 				F95BEE61306C406F0035F17C /* sfx_correct.caf */,
+				A17FA1113075A00100C0D001 /* sfx_fall_down.caf */,
 				F95BEE62306C406F0035F17C /* sfx_double_card.caf */,
 				F95BEE63306C406F0035F17C /* sfx_double_score.caf */,
 				F95BEE64306C406F0035F17C /* sfx_high_score.caf */,
@@ -273,6 +277,7 @@
 				F95BEE6B306C406F0035F17C /* sfx_switch_on.caf */,
 				F95BEE6C306C406F0035F17C /* sfx_take_nut.caf */,
 				F95BEE6D306C406F0035F17C /* sfx_wrong.caf */,
+				A17FA1133075A00100C0D001 /* sfx_point_up.caf */,
 				F95BEE6E306C406F0035F17C /* SpokenMath.swift */,
 				F95BEE6F306C406F0035F17C /* Theme.swift */,
 				F95BEE70306C406F0035F17C /* Tutorial.swift */,
@@ -320,6 +325,7 @@
 				F95BEE34306C406F0035F17C /* FrogPondHabitat.swift */,
 				F95BEE35306C406F0035F17C /* HabitatAmbience.swift */,
 				F95BEE36306C406F0035F17C /* HabitatBrush.swift */,
+				A7C0DE10406C406F0035F17C /* GoalHeavenSkyIslands.swift */,
 				A7C0DE10006C406F0035F17C /* GoalHeavenIsland.swift */,
 				A7C0DE10106C406F0035F17C /* GoalHeavenScenesA.swift */,
 				A7C0DE10206C406F0035F17C /* GoalHeavenScenesB.swift */,
@@ -407,6 +413,8 @@
 		F95BEE04306C404B0035F17C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				A17FA1103075A00100C0D001 /* sfx_fall_down.caf in Resources */,
+				A17FA1123075A00100C0D001 /* sfx_point_up.caf in Resources */,
 				F95BEEAE306C406F0035F17C /* app_icon_clean.png in Resources */,
 				F95BEEAF306C406F0035F17C /* sfx_take_nut.caf in Resources */,
 				F95BEEB0306C406F0035F17C /* sfx_card_flight.caf in Resources */,
@@ -422,7 +430,6 @@
 				F95BEEBA306C406F0035F17C /* sfx_level_complete.caf in Resources */,
 				F95BEEBB306C406F0035F17C /* sfx_correct.caf in Resources */,
 				F95BEEBC306C406F0035F17C /* Assets.xcassets in Resources */,
-				F95BEEBD306C406F0035F17C /* sfx_button_press.caf in Resources */,
 				F95BEEBE306C406F0035F17C /* InfoPlist.xcstrings in Resources */,
 				F95BEEBF306C406F0035F17C /* sfx_card_reveal.caf in Resources */,
 				F95BEEC0306C406F0035F17C /* sfx_session_start.caf in Resources */,
@@ -459,6 +466,7 @@
 				F95BEE7F306C406F0035F17C /* Theme.swift in Sources */,
 				F95BEE80306C406F0035F17C /* ElephantChallengeApp.swift in Sources */,
 				F95BEE81306C406F0035F17C /* HabitatBrush.swift in Sources */,
+				A7C0DE20406C406F0035F17C /* GoalHeavenSkyIslands.swift in Sources */,
 				A7C0DE20006C406F0035F17C /* GoalHeavenIsland.swift in Sources */,
 				A7C0DE20106C406F0035F17C /* GoalHeavenScenesA.swift in Sources */,
 				A7C0DE20206C406F0035F17C /* GoalHeavenScenesB.swift in Sources */,

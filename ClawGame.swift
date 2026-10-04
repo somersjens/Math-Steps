@@ -716,7 +716,7 @@ final class ClawEngine: ObservableObject {
     func pressGrab() {
         guard acceptsGrab else { return }
         onTutorialEvent?(.pressedGrab)
-        AppAudio.shared.playButtonPress()
+        AppAudio.shared.playMenuTap()
         buttonPressed = true
         buttonPressAge = 0
         controlSignal.send()

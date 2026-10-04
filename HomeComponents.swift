@@ -1171,9 +1171,12 @@ struct AlternatingCardSummary: View {
                     // at this size.
                     .offset(y: 0.8 * scale * contentScale)
                     .opacity(0.58)
-                animal.artwork
-                    .resizable()
-                    .scaledToFit()
+                CharacterMenuPortrait(character: animal,
+                                      side: artworkSide * contentScale) {
+                    animal.artwork
+                        .resizable()
+                        .scaledToFit()
+                }
                     .frame(width: artworkSide * contentScale,
                            height: artworkSide * contentScale)
                     // Keep the full visual size, but let it extend equally above

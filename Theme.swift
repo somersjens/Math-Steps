@@ -77,6 +77,9 @@ enum CharacterArtworkCache {
     static func prewarm() {
         for character in CharacterCatalog.all {
             _ = front(named: character.imageName)
+            if let portraitName = character.menuPortraitImageName {
+                _ = front(named: portraitName)
+            }
         }
     }
 
@@ -573,23 +576,13 @@ enum CharacterUnlockStore {
     }
 
     static func canUse(characterID: String, isPremium: Bool) -> Bool {
-        if GameSettings.allCharactersUnlockedForSelfTest { return true }
-        return CharacterUnlocks.isUnlocked(characterID: characterID,
-                                           totalCards: totalCards,
-                                           isPremium: isPremium)
-    }
-
-    static var selfTestUnlocksAll: Bool {
-        GameSettings.allCharactersUnlockedForSelfTest
-    }
-
-    static func unlockAllForSelfTest() {
-        GameSettings.allCharactersUnlockedForSelfTest = true
+        CharacterUnlocks.isUnlocked(characterID: characterID,
+                                    totalCards: totalCards,
+                                    isPremium: isPremium)
     }
 
     /// The next animal still to be earned, for the home screen and reminders.
     static func nextMilestone() -> (character: AnimalCharacter, remaining: Int)? {
-        guard !selfTestUnlocksAll else { return nil }
         guard let next = CharacterUnlocks.nextMilestone(totalCards: totalCards) else { return nil }
         return (CharacterCatalog.character(id: next.characterID), next.remaining)
     }

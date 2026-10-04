@@ -187,10 +187,10 @@ struct ResultView: View {
         }
     }
 
-    /// The result hangs the selected character the same way the menu does:
-    /// no tile behind it, so it reads as the animal rather than a badge.
+    /// Use the standalone menu portrait on the result card as well, so asset
+    /// changes cannot make this prominent illustration fall back to a paw.
     private var resultPortrait: some View {
-        Group {
+        CharacterMenuPortrait(character: character, side: 92 * scale) {
             if CharacterArtworkAvailability.hasLayeredArtwork(for: character) {
                 HangingCharacterArtwork(character: character)
             } else {
@@ -362,9 +362,11 @@ struct ResultView: View {
                 ForEach(result.unlockedCharacterIDs, id: \.self) { id in
                     let animal = CharacterCatalog.character(id: id)
                     VStack(spacing: 4) {
-                        animal.artwork
-                            .resizable()
-                            .scaledToFit()
+                        CharacterMenuPortrait(character: animal, side: 50 * scale) {
+                            animal.artwork
+                                .resizable()
+                                .scaledToFit()
+                        }
                             .frame(width: 50 * scale, height: 50 * scale)
                         Text(verbatim: animal.localizedName)
                             .font(.system(size: 11 * textScale, weight: .bold, design: .rounded))

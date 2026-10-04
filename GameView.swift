@@ -119,6 +119,10 @@ struct GameView: View {
     @State private var playsLevelCompletion = false
     @State private var playsTimeOutFinale = false
     @State private var showsResult = false
+    /// Changes for every replay so the long-lived playfield can discard all
+    /// local choreography from the completed run, including a held finale
+    /// sprite frame.
+    @State private var playthroughID = 0
     /// The cover may remain visible for a few frames while returning to Home.
     /// Hide its live playfield immediately so the completed character can
     /// never be composited over the menu during that dismissal transition.
@@ -170,6 +174,7 @@ struct GameView: View {
                                showsResult = false
                                playsLevelCompletion = false
                                playsTimeOutFinale = false
+                               playthroughID &+= 1
                                Task { await model.restart() }
                            },
                            onExit: leave)
@@ -345,6 +350,7 @@ struct GameView: View {
                                    currentStep: model.currentStep,
                                    highestStep: model.highestStep,
                                    maximumSteps: model.maximumRounds,
+                                   playthroughID: playthroughID,
                                    character: character,
                                    isPad: isPad,
                                    isLive: model.acceptsInput,
@@ -364,6 +370,9 @@ struct GameView: View {
                                    },
                                    onWrongFallCompleted: {
                                        tutorial.wrongFallCompleted()
+                                   },
+                                   onEntranceStanding: {
+                                       AppAudio.shared.playSessionStart()
                                    },
                                    onEntranceComplete: finishFishEntrance,
                                    onLevelCompletionFinished: finishLevelCompletion,
@@ -514,22 +523,45 @@ struct GameView: View {
     }
 }
 
-/// Gold HUD chrome restained in the selected character's colours. Solid yellow
-/// becomes that animal's own accent — turquoise for the dog — and the
-/// light-gold to orange gradients keep the same glossy shape in that hue.
+/// Gold HUD chrome restained in the selected character's colours. The dog is
+/// the exception: its turquoise sits on a blue sky, so the HUD uses a vivid
+/// orange. The rim stays near #EC9E4A; the fill keeps the old candy shape,
+/// bright orange into a saturated darker orange, instead of sinking into brown.
 private struct GameplayHUDPalette {
     let character: AnimalCharacter
 
-    /// Bright face of the old gold fill.
-    var highlight: Color { mix(character.primaryRGB, (1, 1, 1), 0.28) }
-    /// Deeper end of the old gold-to-orange fill.
-    var shade: Color { mix(character.primaryRGB, character.deepRGB, 0.72) }
-    /// The accent that stands in for a flat gold stroke.
-    var rim: Color { character.color }
-    /// Pale wash that replaces the cream plaque.
-    var wash: Color { character.skyColor }
-    /// Shadow and glyph glow, formerly orange or navy.
-    var glow: Color { character.deepColor }
+    private var usesDogOrange: Bool { character.id == "dog" }
+
+    /// Bright face of the old gold fill. Dog: #FFB347.
+    var highlight: Color {
+        usesDogOrange
+            ? Color(red: 1.00, green: 179.0 / 255, blue: 71.0 / 255)
+            : mix(character.primaryRGB, (1, 1, 1), 0.28)
+    }
+    /// Deeper end of the fill. Dog: #F07828, still luminous orange.
+    var shade: Color {
+        usesDogOrange
+            ? Color(red: 240.0 / 255, green: 120.0 / 255, blue: 40.0 / 255)
+            : mix(character.primaryRGB, character.deepRGB, 0.72)
+    }
+    /// Flat stroke. Dog: #F7A23C, a cleaner step on from #EC9E4A.
+    var rim: Color {
+        usesDogOrange
+            ? Color(red: 247.0 / 255, green: 162.0 / 255, blue: 60.0 / 255)
+            : character.color
+    }
+    /// Pale wash that replaces the cream plaque. Dog: #FFF3E4.
+    var wash: Color {
+        usesDogOrange
+            ? Color(red: 1.00, green: 243.0 / 255, blue: 228.0 / 255)
+            : character.skyColor
+    }
+    /// Shadow and glyph glow. Dog: #C45E16, only under the chrome.
+    var glow: Color {
+        usesDogOrange
+            ? Color(red: 196.0 / 255, green: 94.0 / 255, blue: 22.0 / 255)
+            : character.deepColor
+    }
 
     private func mix(_ base: (Double, Double, Double),
                      _ target: (Double, Double, Double),

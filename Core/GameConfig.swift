@@ -119,9 +119,9 @@ nonisolated public enum GameConfig {
 
     /// How many answer nuts fill a board depends on the chosen exercise.
     /// Supermix remains the only route that goes all the way to 50 nuts.
-    public static let orderLevelMaximum = 25
-    public static let randomLevelMaximum = 35
-    public static let mixedLevelMaximum = 45
+    public static let orderLevelMaximum = 20
+    public static let randomLevelMaximum = 25
+    public static let mixedLevelMaximum = 30
     public static let supermixLevelMaximum = 50
 
     /// Default used by views before they receive their concrete board.

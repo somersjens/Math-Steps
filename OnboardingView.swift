@@ -364,12 +364,10 @@ struct OnboardingView: View {
         let minimumComfortableScale: CGFloat = isPad ? 0.82 : 0.78
         let allowsTwoLines = requiredScale < minimumComfortableScale
         let scale = max(requiredScale, minimumComfortableScale)
-        // Keep the choice cards close to their two text lines. The previous
-        // fixed heights added so much air above and below every option that the
-        // third screen grew into the hanging elephant.
-        let rowHeight: CGFloat = isPad
-            ? (allowsTwoLines ? 92 : 66)
-            : (allowsTwoLines ? 80 : 52)
+        // A floor for the card height; the label's own vertical padding sets
+        // the breathing room and lets a genuinely wrapped row grow. A taller
+        // floor for two-line languages left one-line rows padded with air.
+        let rowHeight: CGFloat = isPad ? 70 : 60
 
         return (scale, allowsTwoLines, rowHeight)
     }
@@ -549,8 +547,9 @@ private struct OnboardingChoiceLabel: View {
                 .foregroundStyle(isSelected ? AnyShapeStyle(OnboardingTheme.accent) : AnyShapeStyle(.secondary))
         }
         .padding(.horizontal, isPad ? 26 : 16)
+        .padding(.vertical, isPad ? 13 : 10)
         .frame(maxWidth: .infinity)
-        .frame(height: rowHeight)
+        .frame(minHeight: rowHeight)
         .background(isSelected ? AnyShapeStyle(OnboardingTheme.accent.opacity(0.16))
                                : AnyShapeStyle(.white.opacity(0.78)),
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))

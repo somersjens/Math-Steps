@@ -151,9 +151,9 @@ final class AppAudio: NSObject, ObservableObject {
     private static let effects: [Effect] = [
         Effect(key: "correct",       file: "sfx_correct",        ext: "caf", volume: 0.08, lead: 0.0),
         Effect(key: "wrong",         file: "sfx_wrong",          ext: "caf", volume: 0.10, lead: 0.0),
+        Effect(key: "fallDown",      file: "sfx_fall_down",      ext: "caf", volume: 0.16, lead: 0.0),
         Effect(key: "takeNut",       file: "sfx_take_nut",       ext: "caf", volume: 0.50, lead: 0.0),
         Effect(key: "releaseGrip",   file: "sfx_release_grip",   ext: "caf", volume: 0.07, lead: 0.0),
-        Effect(key: "buttonPress",   file: "sfx_button_press",   ext: "caf", volume: 0.31, lead: 0.0),
         Effect(key: "move",          file: "sfx_move",           ext: "caf", volume: 0.24, lead: 0.0),
         // The question card turning face up.
         Effect(key: "cardReveal",    file: "sfx_card_reveal",    ext: "caf", volume: 0.19, lead: 0.010),
@@ -164,7 +164,7 @@ final class AppAudio: NSObject, ObservableObject {
         // The card counters on the result screen and the home header.
         Effect(key: "cardCount",     file: "sfx_card_count",     ext: "caf", volume: 1.0,  lead: 0.065),
         Effect(key: "cardFlight",    file: "sfx_card_flight",    ext: "caf", volume: 0.812, lead: 0.35),
-        Effect(key: "cardTotal",     file: "score_increase",     ext: "caf", volume: 1.0,  lead: 0.0),
+        Effect(key: "cardTotal",     file: "sfx_point_up",       ext: "caf", volume: 0.092, lead: 0.0),
         Effect(key: "cardTotalMenu", file: "score_increase_main", ext: "caf", volume: 0.18, lead: 0.01),
         Effect(key: "select",        file: "sfx_select",         ext: "caf", volume: 0.17, lead: 0.0),
         Effect(key: "switchOn",      file: "sfx_switch_on",      ext: "caf", volume: 0.89, lead: 0.200),
@@ -211,10 +211,10 @@ final class AppAudio: NSObject, ObservableObject {
     private let gameMusicVolume: Float = 0.30
     private let duckedMusicVolume: Float = 0.05
 
-    /// The source track fades out from ~108.5 s and is inaudible by ~110.5 s,
-    /// with a short near-silent tail to 111.05 s. Restart after a musical
+    /// The source track fades out from ~156.5 s and is nearly inaudible by
+    /// ~159.5 s, with a short tail to 159.7 s. Restart after that musical
     /// breath instead of making every loop wait for that tail.
-    private let musicLoopEndTime: TimeInterval = 110.50
+    private let musicLoopEndTime: TimeInterval = 159.50
 
     /// The volume the music should currently sit at, given where the player is.
     private var currentMusicTarget: Float { isGameplayActive ? gameMusicVolume : menuMusicVolume }
@@ -704,11 +704,12 @@ final class AppAudio: NSObject, ObservableObject {
     // Answers.
     func playCorrect()          { playEffect("correct") }
     func playWrong()            { playEffect("wrong") }
+    func playFallDown()         { playEffect("fallDown") }
+    func playAnswerTap()        { playEffect("select") }
     func playTakeNut()          { playEffect("takeNut") }
     func playReleaseGrip()      { playEffect("releaseGrip") }
-    func playButtonPress()      { playEffect("buttonPress") }
     func playMove()             { playEffect("move") }
-    func playCardReveal()       { playEffect("cardReveal") }       // the question becomes visible
+    func playCardReveal()       { playEffect("cardReveal") }       // correct landing / question reveal
     func playSessionStart()     { playEffect("sessionStart") }
     func playSessionComplete()  { playEffect("sessionComplete") }
     func playHighScore()        { playEffect("highScore") }        // new personal best

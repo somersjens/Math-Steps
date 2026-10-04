@@ -245,8 +245,6 @@ struct PremiumView: View {
     private func availabilityBadge(for animal: AnimalCharacter) -> some View {
         if animal.id == CharacterCatalog.freeCharacterID {
             badge(text: L(key: "premium.availableFromStart"), icon: nil)
-        } else if CharacterUnlockStore.selfTestUnlocksAll {
-            badge(text: L(key: "common.unlocked"), icon: "checkmark.circle.fill")
         } else if let cards = CharacterUnlockStore.requirement(for: animal.id) {
             if totalCards >= cards {
                 badge(text: L("premium.earnedCards \(cards)"),
@@ -579,10 +577,11 @@ struct PremiumView: View {
                         )
                         .rotationEffect(.degrees(unlockBurstRotation))
 
-                        animal.artwork
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: stageSize * 0.72, height: stageSize * 0.72)
+                        CharacterMenuPortrait(character: animal, side: stageSize * 0.72) {
+                            animal.artwork
+                                .resizable()
+                                .scaledToFit()
+                        }
                             .scaleEffect(unlockCharacterScale)
                             .rotationEffect(.degrees(unlockCharacterRotation))
                             .offset(y: unlockCharacterFloating ? -7 * scale : 7 * scale)

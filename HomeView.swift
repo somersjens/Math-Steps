@@ -59,6 +59,8 @@ struct HomeView: View {
     @State private var selection: LevelSelection?
     @State private var showPremium = false
     @State private var premiumInitialCharacterID: String?
+    @State private var celebratedUnlockID: String?
+    @State private var pendingUnlockIDs: [String] = []
     @State private var showGoalPicker = false
     @State private var showNameEditor = false
     @State private var nameDraft = ""
@@ -307,9 +309,13 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showPremium, onDismiss: {
             premiumInitialCharacterID = nil
+            celebratedUnlockID = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                presentNextUnlockIfAny()
+            }
         }) {
             PremiumView(initialCharacterID: premiumInitialCharacterID,
-                        celebratedUnlockCharacterID: nil)
+                        celebratedUnlockCharacterID: celebratedUnlockID)
                 .premiumSheetPresentation()
         }
         .sheet(isPresented: $showNameEditor) {
@@ -553,7 +559,6 @@ struct HomeView: View {
     private func synchronizeUnlockPrompt(animated: Bool) {
         let next: NextCharacterPrompt?
         if totalCards > 0,
-           !CharacterUnlockStore.selfTestUnlocksAll,
            let milestone = CharacterUnlocks.nextMilestone(totalCards: displayedTotalCards) {
             next = NextCharacterPrompt(characterID: milestone.characterID,
                                        remaining: milestone.remaining)
@@ -1185,9 +1190,17 @@ struct HomeView: View {
                 self.unlockPreviewTrigger &+= 1
                 self.synchronizeUnlockPrompt(animated: true)
             }
+            pendingUnlockIDs = CharacterUnlockStore.unannouncedUnlocks(at: totalCards).map(\.id)
+            // Let the score, flight and both total counters finish before the
+            // newly earned character takes over the screen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + lifetime + 0.25) {
+                presentNextUnlockIfAny()
+            }
         } else {
             holdsPreSessionValues = false
             synchronizeUnlockPrompt(animated: unlockPrompt != nil)
+            pendingUnlockIDs = CharacterUnlockStore.unannouncedUnlocks(at: totalCards).map(\.id)
+            presentNextUnlockIfAny()
         }
     }
 
@@ -1248,11 +1261,6 @@ struct HomeView: View {
         let levels = LevelCatalog.levels(for: topic).filter { !$0.requiresPremium }
         guard levels.count >= 2 else { return }
 
-        // The hidden hold gesture is also the character-roster self-test.
-        // Keep this independent from Premium: it must not unlock levels or
-        // impersonate a StoreKit entitlement.
-        CharacterUnlockStore.unlockAllForSelfTest()
-
         let full = board(for: levels[0]).maximum
         // One complete score celebration.
         let step = Self.cardSettleDelay + Self.maximumRevealPause + Self.flightDuration
@@ -1290,6 +1298,17 @@ struct HomeView: View {
         // Straight to the celebration: the self-test is about that sequence,
         // not about whatever the walkthrough may still owe the player.
         runReturnCelebration()
+    }
+
+    /// Presents every genuinely earned, not-yet-announced character in catalog
+    /// order. Dismissing one unlock sheet advances to the next queued animal.
+    private func presentNextUnlockIfAny() {
+        guard !showPremium, !pendingUnlockIDs.isEmpty else { return }
+        let next = pendingUnlockIDs.removeFirst()
+        CharacterUnlockStore.markAnnounced(next)
+        celebratedUnlockID = next
+        premiumInitialCharacterID = next
+        showPremium = true
     }
 
     private var promoDisplayedTotal: Int {

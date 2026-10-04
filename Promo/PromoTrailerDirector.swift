@@ -373,7 +373,7 @@ final class PromoTrailerDirector: ObservableObject {
         engine.setInput(0)
         engine.trailerPressGrab(id: id)
         didPressForBeat = true
-        cueSFX("sfx_button_press", volume: 0.31)
+        cueSFX("sfx_select", volume: 0.17)
     }
 
     /// Drop as soon as the trolley is over the nut. Leftover swing is left in.
@@ -470,7 +470,7 @@ final class PromoTrailerDirector: ObservableObject {
     private func handleAnswer(isCorrect: Bool) {
         if isCorrect {
             completedGrabs += 1
-            cueSFX("sfx_correct", volume: 0.08)
+            cueSFX("sfx_card_reveal", volume: 0.19)
             if completedGrabs >= session.rounds.count {
                 model?.trailerForceLevelComplete()
             }

@@ -95,9 +95,15 @@ final class GameViewModel: ObservableObject {
     /// A round-resolution callback that became due while the pause card was
     /// covering the reef. It runs once on continue instead of behind the card.
     private var pendingScheduledWork: (() -> Void)?
-    /// The rules award cards immediately, while the HUD waits until the
-    /// matching currency nut physically reaches it.
-    private var pendingScoreRewards: [Int] = []
+    /// One accepted reward waiting to be reflected in the HUD. Capturing the
+    /// engine's high-water mark here lets every arrival advance the visible
+    /// score independently; a later reward still being in flight must not
+    /// hold earlier score updates back.
+    private struct PendingScoreReward {
+        let cards: Int
+        let highestStep: Int
+    }
+    private var pendingScoreRewards: [PendingScoreReward] = []
     private var clockTimer: Timer?
     /// Time may reach zero during a jump or fall. The clock stops immediately,
     /// while game-over waits for that already-started movement to finish.
@@ -198,9 +204,8 @@ final class GameViewModel: ObservableObject {
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
-        AppAudio.shared.playSessionStart()
         openRound()
-        announceRound()
+        announceRound(playsRevealSound: false)
         sync()
     }
 
@@ -212,8 +217,8 @@ final class GameViewModel: ObservableObject {
         engine.beginAnswering()
     }
 
-    private func announceRound() {
-        AppAudio.shared.playCardReveal()
+    private func announceRound(playsRevealSound: Bool = true) {
+        if playsRevealSound { AppAudio.shared.playCardReveal() }
         if let prompt = engine.round?.question.prompt {
             AppAudio.shared.speakQuestion(prompt)
         }
@@ -342,7 +347,7 @@ final class GameViewModel: ObservableObject {
         startClock()
         AppAudio.shared.playSessionStart()
         openRound()
-        announceRound()
+        announceRound(playsRevealSound: false)
         sync()
     }
 
@@ -365,20 +370,24 @@ final class GameViewModel: ObservableObject {
         let token = generation
         stepResolutionToken &+= 1
         let resolutionToken = stepResolutionToken
+        // Selection always sounds identical. Outcome feedback is delayed until
+        // the character visibly lands or starts falling in the playfield.
+        AppAudio.shared.playAnswerTap()
         let delay: Double
         switch outcome {
         case .correct(let cardsEarned):
-            pendingScoreRewards.append(cardsEarned)
+            pendingScoreRewards.append(PendingScoreReward(
+                cards: cardsEarned,
+                highestStep: engine.highestStep
+            ))
             sync()
             onAnswerResolved?(true, false)
-            AppAudio.shared.playCorrect()
             haptic(.success)
             delay = max(GameConfig.nextRoundDelay.correct,
                         GameConfig.stepCorrectResolutionFallbackDuration)
         case .wrong:
             sync()
             onAnswerResolved?(false, false)
-            AppAudio.shared.playWrong()
             haptic(.error)
             delay = GameConfig.nextRoundDelay.wrong
         case .ignored:
@@ -433,7 +442,9 @@ final class GameViewModel: ObservableObject {
         } else {
             // Always reopen the fixed route round. After a mistake on the
             // first sum its stable ID is deliberately unchanged.
-            announceRound()
+            // The landing already used cardReveal as its single correct-answer
+            // cue; opening the next sum must not play it a second time.
+            announceRound(playsRevealSound: false)
             openRound()
         }
         sync()
@@ -451,10 +462,13 @@ final class GameViewModel: ObservableObject {
         let delay: Double
         switch outcome {
         case .correct(let cardsEarned):
-            pendingScoreRewards.append(cardsEarned)
+            pendingScoreRewards.append(PendingScoreReward(
+                cards: cardsEarned,
+                highestStep: engine.highestStep
+            ))
             sync()
             onAnswerResolved?(true, false)
-            AppAudio.shared.playCorrect()
+            AppAudio.shared.playCardReveal()
             haptic(.success)
             // The finale starts from the drop itself. Waiting the usual
             // next-round beat would punch a heavy game-over view update
@@ -492,7 +506,9 @@ final class GameViewModel: ObservableObject {
             if self.engine.state == .gameOver {
                 self.finishSession()
             } else if self.engine.round?.id != previousRoundID {
-                self.announceRound()
+                // Correct feedback already used cardReveal at resolution; a
+                // wrong answer must not make the next question sound correct.
+                self.announceRound(playsRevealSound: false)
                 self.openRound()
             }
             self.sync()
@@ -504,13 +520,9 @@ final class GameViewModel: ObservableObject {
     /// on the HUD icon.
     func scoreBubbleArrived() {
         guard !pendingScoreRewards.isEmpty else { return }
-        cards += pendingScoreRewards.removeFirst()
-        // Advancing the round may already have made the next sum visible.
-        // Keep the HUD score tied to the physical trophy arrival instead of
-        // letting that earlier round update increment it prematurely.
-        if pendingScoreRewards.isEmpty {
-            highestStep = engine.highestStep
-        }
+        let reward = pendingScoreRewards.removeFirst()
+        cards += reward.cards
+        highestStep = max(highestStep, reward.highestStep)
         AppAudio.shared.playCardTotal()
         haptic(.light)
     }

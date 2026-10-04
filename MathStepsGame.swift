@@ -276,6 +276,8 @@ struct MathStepsPlayfield: View {
                     StepCourseRails(layout: layout,
                                     character: character,
                                     farDepth: railEndDepth)
+                    StepGoalApproachClouds(layout: layout, goalDepth: goalDepth)
+                        .opacity(rewindPosition == nil ? 1 : 0)
                 }
                 if let checkpointBoundary {
                     checkpointFlag(layout: layout,
@@ -726,6 +728,7 @@ struct MathStepsPlayfield: View {
                               // horizon; only animate it once it is visible.
                               isAnimating: depth < 4.5,
                               celebrating: victoryInProgress,
+                              approach: max(0, min(1, 1 - (depth - 1) / StepGoalApproachClouds.reach)),
                               hidesChest: victoryChestAttached,
                               chestSize: CGSize(width: chestWidth,
                                                 height: chestHeight),
@@ -1971,6 +1974,70 @@ private struct StepCourseLayout {
 
 // MARK: - Course art
 
+/// Clouds gathering beside the last steps of the bridge. They thicken towards
+/// the finish so the heaven island's cloud collar is the climax of a build-up
+/// rather than an abrupt change. They sit outside the outer supports and
+/// behind the stones, so no answer is ever covered.
+private struct StepGoalApproachClouds: View, Animatable {
+    let layout: StepCourseLayout
+    var goalDepth: CGFloat
+
+    var animatableData: CGFloat {
+        get { goalDepth }
+        set { goalDepth = newValue }
+    }
+
+    /// Steps before the finish over which the clouds build up.
+    static let reach: CGFloat = 4.5
+
+    var body: some View {
+        Canvas { context, _ in
+            let belly = Color(red: 0.82, green: 0.88, blue: 1.0)
+            let baseWidth: CGFloat = layout.isPad ? 250 : 150
+            // Half-step spacing; every slot is fixed relative to the island,
+            // so the clouds travel with the bridge.
+            for slot in 1...Int(Self.reach * 2) {
+                let stepsBefore = CGFloat(slot) * 0.5
+                let depth = goalDepth - stepsBefore
+                guard depth > -1.4 else { continue }
+                let intensity = 1 - stepsBefore / (Self.reach + 0.5)
+                let scale = layout.scale(at: depth)
+                for side in [-1, 1] {
+                    let seed = slot * 2 + (side > 0 ? 1 : 0)
+                    // Sparse far from the island, a continuous bank next to it.
+                    guard intensity > 0.55 || (seed * 7919) % 3 != 0 else { continue }
+                    let jitter = CGFloat((seed * 2654435761) % 1000) / 1000
+                    let width = baseWidth * scale * (0.50 + 0.70 * intensity) * (0.85 + 0.3 * jitter)
+                    let height = width * 0.42
+                    let railX = layout.size.width / 2
+                        + layout.supportOffset(boundary: side < 0 ? 0 : 3, at: depth)
+                    let center = CGPoint(x: railX + CGFloat(side) * width * (0.28 + 0.12 * jitter),
+                                         y: layout.y(at: depth) + height * (0.10 - 0.25 * jitter))
+                    var lobes = Path()
+                    for index in 0..<5 {
+                        let t = CGFloat(index) / 4
+                        let lift = CGFloat(sin(Double(t) * .pi))
+                        let radius = height * (0.32 + 0.30 * lift)
+                        lobes.addEllipse(in: CGRect(x: center.x + (t - 0.5) * (width - radius * 1.4) - radius,
+                                                    y: center.y - lift * height * 0.22 - radius,
+                                                    width: radius * 2, height: radius * 2))
+                    }
+                    lobes.addRoundedRect(in: CGRect(x: center.x - width * 0.42, y: center.y,
+                                                    width: width * 0.84, height: height * 0.36),
+                                         cornerSize: CGSize(width: height * 0.18, height: height * 0.18))
+                    var cloud = context
+                    cloud.opacity = (0.45 + 0.50 * Double(intensity)) * layout.opacity(at: depth)
+                    cloud.fill(lobes, with: .linearGradient(Gradient(colors: [.white, .white, belly]),
+                                                            startPoint: CGPoint(x: center.x, y: center.y - height * 0.6),
+                                                            endPoint: CGPoint(x: center.x, y: center.y + height * 0.4)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct StepCourseRails: View, Animatable {
     let layout: StepCourseLayout
     let character: AnimalCharacter
@@ -2374,6 +2441,7 @@ private struct StepGoalIsland: View {
     let referenceSize: CGSize
     let isAnimating: Bool
     let celebrating: Bool
+    let approach: CGFloat
     let hidesChest: Bool
     let chestSize: CGSize
     let chestCenterY: CGFloat
@@ -2387,7 +2455,8 @@ private struct StepGoalIsland: View {
                                  isPad: isPad,
                                  referenceSize: referenceSize,
                                  isAnimating: isAnimating,
-                                 celebrating: celebrating)
+                                 celebrating: celebrating,
+                                 approach: approach)
 
                 if !hidesChest {
                     StepGoalChest(character: character)
@@ -4061,6 +4130,7 @@ struct StepGoalHeavenQAView: View {
                 StepSky(character: character, layout: layout, travel: 10, routeLength: 10)
                 FloatingWorld(character: character, layout: layout, travel: 10, routeLength: 10)
                 StepCourseRails(layout: layout, character: character, farDepth: depth)
+                StepGoalApproachClouds(layout: layout, goalDepth: depth)
 
                 StepGoalIsland(character: character,
                                isPad: isPad,
@@ -4068,6 +4138,7 @@ struct StepGoalHeavenQAView: View {
                                                      height: layout.goalHeight(for: referenceWidth)),
                                isAnimating: true,
                                celebrating: celebrating,
+                               approach: max(0, min(1, 1 - (depth - 1) / StepGoalApproachClouds.reach)),
                                hidesChest: true,
                                chestSize: .zero,
                                chestCenterY: 0)

@@ -105,6 +105,12 @@ struct ResultView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
                 showsConfetti = true
             }
+            // The longest delayed piece has finished and faded by 4.2s. Drop
+            // the timeline after that so the invisible effect does not keep
+            // requesting frames while the result card remains on screen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.6) {
+                showsConfetti = false
+            }
             // The badge drops in after the card has settled, then glints once.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
                 withAnimation(.spring(response: 0.44, dampingFraction: 0.52)) {
@@ -412,6 +418,7 @@ struct ResultView: View {
 private struct ConfettiRainView: View {
     let accentColor: Color
     @State private var pieces: [ConfettiPiece]
+    @State private var startedAt = Date()
 
     init(accentColor: Color) {
         self.accentColor = accentColor
@@ -424,14 +431,19 @@ private struct ConfettiRainView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                ForEach(pieces) { piece in
-                    FallingConfetti(piece: piece,
-                                    area: proxy.size,
-                                    color: color(for: piece.colorIndex))
+            TimelineView(.animation) { timeline in
+                let elapsed = timeline.date.timeIntervalSince(startedAt)
+                ZStack {
+                    ForEach(pieces) { piece in
+                        FallingConfetti(piece: piece,
+                                        area: proxy.size,
+                                        color: color(for: piece.colorIndex),
+                                        elapsed: elapsed)
+                    }
                 }
             }
         }
+        .onAppear { startedAt = Date() }
         .accessibilityHidden(true)
     }
 
@@ -468,35 +480,38 @@ private struct FallingConfetti: View {
     let piece: ConfettiPiece
     let area: CGSize
     let color: Color
+    let elapsed: TimeInterval
 
-    @State private var hasFallen = false
-    @State private var hasFaded = false
+    private let fadeDuration = 0.34
+
+    private var localTime: TimeInterval { elapsed - piece.delay }
+    private var fallProgress: CGFloat {
+        min(1, max(0, localTime / piece.fallDuration))
+    }
+    private var easedFallProgress: CGFloat {
+        // Closely matches the old ease-out timing curve, but derives every
+        // frame from elapsed time so a delayed render cannot strand a piece.
+        1 - pow(1 - fallProgress, 2.2)
+    }
+    private var opacity: Double {
+        guard localTime >= 0 else { return 0 }
+        guard localTime > piece.fallDuration else { return 0.9 }
+        let fadeProgress = (localTime - piece.fallDuration) / fadeDuration
+        return 0.9 * max(0, 1 - fadeProgress)
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: 1.5, style: .continuous)
             .fill(color)
             .frame(width: piece.width, height: piece.height)
-            .rotation3DEffect(.degrees(hasFallen ? piece.rotation : 0),
+            .rotation3DEffect(.degrees(piece.rotation * easedFallProgress),
                               axis: (x: 0.35, y: 1, z: 0.2))
-            .rotationEffect(.degrees(hasFallen ? piece.rotation * 0.55 : 0))
-            .opacity(hasFaded ? 0 : 0.9)
-            .position(x: area.width * piece.x + (hasFallen ? piece.drift : 0),
-                      y: hasFallen ? area.height * piece.fadeY : -piece.height)
-        .onAppear {
-            withAnimation(
-                .timingCurve(0.32, 0.48, 0.42, 1,
-                             duration: piece.fallDuration)
-                    .delay(piece.delay)
-            ) {
-                hasFallen = true
-            }
-
-            // Let the paper settle, then gently fade instead of ending on a hard cut.
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + piece.delay + piece.fallDuration + 0.06
-            ) {
-                withAnimation(.easeOut(duration: 0.34)) { hasFaded = true }
-            }
-        }
+            .rotationEffect(.degrees(piece.rotation * 0.55 * easedFallProgress))
+            .opacity(opacity)
+            .position(
+                x: area.width * piece.x + piece.drift * easedFallProgress,
+                y: -piece.height
+                    + (area.height * piece.fadeY + piece.height) * easedFallProgress
+            )
     }
 }

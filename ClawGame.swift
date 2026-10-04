@@ -263,6 +263,9 @@ struct ClawTutorialPlan: Equatable {
     var isActive = false
     var wantsMove = false
     var suppressesGrab = false
+    /// The first two teaching rows contain only their correct tile. The other
+    /// two lanes render as existing gaps and cannot be selected.
+    var hidesIncorrectAnswers = false
     /// The answer ring is a teaching aid, never an always-on answer helper.
     var highlightsCorrectNut = false
     /// Pulse the physical controls that matter for the current instruction.

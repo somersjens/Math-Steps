@@ -112159,6 +112159,54 @@
         }
       }
     },
+    "tutorial.steps.chooseCorrect" : {
+      "comment" : "Tutorial step 1: the first two rows contain only the correct answer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click on the correct answer that matches the question!"
+          }
+        }
+      }
+    },
+    "tutorial.steps.chooseWrong" : {
+      "comment" : "Tutorial step 2: invite the player to choose a wrong answer and experience a fall.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Now, see what happens when you click on the wrong answer!"
+          }
+        }
+      }
+    },
+    "tutorial.steps.finishLine" : {
+      "comment" : "Tutorial step 4: reveal the prize waiting at the finish line.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check your score in the top right corner to see how many more you need to reach the special prize at the finish line. Good luck!"
+          }
+        }
+      }
+    },
+    "tutorial.steps.timer" : {
+      "comment" : "Tutorial step 3: explain unlimited lives and the newly-started timer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No worries, you have unlimited lives! Try to get as far as you can before the timer runs out."
+          }
+        }
+      }
+    },
     "tutorial.step.10" : {
       "comment" : "Walkthrough step 10 of 10: where the score is shown.",
       "extractionState" : "manual",

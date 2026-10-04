@@ -172,11 +172,37 @@ struct AnimalCharacter: Identifiable, Equatable {
         case "crab": "4"
         case "elephant": "5"
         case "bear": "6"
+        case "fox": "7"
         case "frog": "8"
         case "penguin": "9"
         case "bunny": "10"
         default: nil
         }
+    }
+
+    /// The standalone portraits were authored on slightly different canvases.
+    /// Keep their visible silhouettes centred without rewriting the source PNGs.
+    /// Values are fractions of the requested portrait side so the correction is
+    /// identical in the compact header, collection grid and large hero views.
+    var menuPortraitOffset: CGSize {
+        switch id {
+        case "lion": CGSize(width: 0.003, height: 0.056)
+        case "octopus": CGSize(width: -0.018, height: 0.035)
+        case "crab": CGSize(width: 0.018, height: 0.003)
+        case "elephant": CGSize(width: 0.006, height: 0.052)
+        case "bear": CGSize(width: -0.001, height: 0.051)
+        case "fox": CGSize(width: 0.011, height: 0.028)
+        case "frog": CGSize(width: 0.001, height: 0.037)
+        case "penguin": CGSize(width: 0.018, height: 0.026)
+        case "bunny": CGSize(width: -0.010, height: 0.023)
+        default: .zero // The dog's visible bounds are already centred.
+        }
+    }
+
+    /// The penguin's broad raised wings make it read larger than the other
+    /// portraits even though the source canvases have comparable dimensions.
+    var menuPortraitScale: CGFloat {
+        id == "penguin" ? 0.92 : 1
     }
 
     /// Layer names, arm pivots and grab reach for the hanging / claw artwork.
@@ -231,11 +257,17 @@ struct CharacterMenuPortrait<Fallback: View>: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: side, height: side)
+                .scaleEffect(character.menuPortraitScale)
+                .offset(x: side * character.menuPortraitOffset.width,
+                        y: side * character.menuPortraitOffset.height)
 #else
             Image(imageName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: side, height: side)
+                .scaleEffect(character.menuPortraitScale)
+                .offset(x: side * character.menuPortraitOffset.width,
+                        y: side * character.menuPortraitOffset.height)
 #endif
         } else {
             fallback

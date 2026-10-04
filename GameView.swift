@@ -119,6 +119,10 @@ struct GameView: View {
     @State private var playsLevelCompletion = false
     @State private var playsTimeOutFinale = false
     @State private var showsResult = false
+    /// The cover may remain visible for a few frames while returning to Home.
+    /// Hide its live playfield immediately so the completed character can
+    /// never be composited over the menu during that dismissal transition.
+    @State private var isLeaving = false
     /// Whether pressing Start or Continue will run the walkthrough. Armed from
     /// onboarding or toggled from the level card before the first point.
     @State private var isTutorialArmed: Bool
@@ -156,6 +160,7 @@ struct GameView: View {
             // start and pause cards, rather than a replacement for the game.
             playfield
                 .transition(.opacity)
+                .opacity(isLeaving ? 0 : 1)
 
             if showsResult {
                 ResultView(result: model.result,
@@ -211,7 +216,7 @@ struct GameView: View {
 #endif
         .onChange(of: model.isGameOver) { _, isOver in
             // There is nothing left to teach on a finished board.
-            if isOver { tutorial.finish() }
+            if isOver { tutorial.finish(keepOpeningGaps: false) }
             guard isOver else {
                 showsResult = false
                 playsLevelCompletion = false
@@ -235,6 +240,13 @@ struct GameView: View {
     }
 
     private func leave() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isLeaving = true
+            playsLevelCompletion = false
+            playsTimeOutFinale = false
+        }
         if let onExit {
             onExit()
         } else {
@@ -346,13 +358,17 @@ struct GameView: View {
                                    scoreTarget: scoreTarget,
                                    onSelect: model.select,
                                    onRewardArrived: model.scoreBubbleArrived,
-                                   onCorrectLanding: model.stepLandingCompleted,
+                                   onCorrectLanding: {
+                                       model.stepLandingCompleted()
+                                       tutorial.correctLandingCompleted()
+                                   },
+                                   onWrongFallCompleted: {
+                                       tutorial.wrongFallCompleted()
+                                   },
                                    onEntranceComplete: finishFishEntrance,
                                    onLevelCompletionFinished: finishLevelCompletion,
                                    onTimeOutFinished: finishTimeOutFinale,
-                                   onTutorialMove: {
-                                       tutorial.handleClaw(.movedClaw)
-                                   })
+                                   onTutorialMove: {})
 
                 hud
                     .padding(.horizontal, horizontalHUDPadding)
@@ -366,7 +382,11 @@ struct GameView: View {
                 // cross. It never takes a touch: the reef stays fully steerable
                 // while a step is being read.
                 if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
-                    TutorialMessageCard(text: message, theme: character, isPad: isPad)
+                    TutorialMessageCard(text: message,
+                                        theme: character,
+                                        isPad: isPad,
+                                        highlightsTimer: tutorial.clawPlan.highlightsTimer,
+                                        highlightsScore: tutorial.clawPlan.highlightsScore)
                         .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
                         .padding(.top, topInset + hudHeight + (isPad ? 22 : 16))
                         // Scales up in place rather than sliding down: a card that
@@ -426,10 +446,10 @@ struct GameView: View {
                                isPad: isPad,
                                width: hudMetricWidth,
                                height: hudMetricHeight,
-                               palette: hudPalette)
+                               palette: hudPalette,
+                               highlightsTutorial: tutorial.clawPlan.highlightsScore)
             }
         }
-        .frame(maxWidth: isPad ? 900 : .infinity)
         .frame(height: hudHeight)
         .frame(maxWidth: .infinity)
     }
@@ -597,22 +617,16 @@ private struct GameplayTimerBadge: View {
                 .monospacedDigit()
                 .minimumScaleFactor(0.72)
                 .lineLimit(1)
+                .foregroundStyle(highlightsTutorial ? TutorialStyle.timerRed : .white)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.42),
                         radius: 1,
                         y: 1)
         }
         .padding(.horizontal, horizontalPadding)
-        .foregroundStyle(.white)
         .frame(width: width, height: height)
         .background(GameplayMetricBackground(height: height, isPad: isPad, palette: palette))
         .shadow(color: .black.opacity(0.25), radius: 5, y: 3)
-        .overlay {
-            if highlightsTutorial {
-                GameplayTimerFocus(color: palette.character.color,
-                                   isPad: isPad)
-            }
-        }
         .accessibilityIdentifier("timer")
         .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
     }
@@ -625,6 +639,7 @@ private struct ClawScoreBadge: View {
     let width: CGFloat
     let height: CGFloat
     let palette: GameplayHUDPalette
+    let highlightsTutorial: Bool
 
     private var iconWidth: CGFloat { isPad ? 23 : 16 }
     private var horizontalPadding: CGFloat { isPad ? 14 : 10 }
@@ -644,6 +659,7 @@ private struct ClawScoreBadge: View {
                 .monospacedDigit()
                 .minimumScaleFactor(0.68)
                 .lineLimit(1)
+                .foregroundStyle(highlightsTutorial ? TutorialStyle.scoreYellow : .white)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .shadow(color: Color(red: 0.06, green: 0.20, blue: 0.43).opacity(0.42),
                         radius: 1,
@@ -685,45 +701,6 @@ private struct GameplayMetricBackground: View {
                     .padding(.horizontal, isPad ? 18 : 12)
                     .padding(.top, isPad ? 4 : 3)
             }
-    }
-}
-
-/// Five-second focus beat around the countdown before it starts. This uses a
-/// self-contained pulse because the HUD is deliberately isolated from the claw
-/// engine's high-frequency frame clock.
-private struct GameplayTimerFocus: View {
-    let color: Color
-    let isPad: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulses = false
-
-    var body: some View {
-        ZStack {
-            Capsule()
-                .stroke(.white.opacity(0.96), lineWidth: isPad ? 5 : 3.5)
-                .scaleEffect(x: pulses ? 1.09 : 1.03,
-                             y: pulses ? 1.20 : 1.08)
-                .opacity(pulses ? 0.56 : 0.94)
-                .shadow(color: color.opacity(0.96), radius: isPad ? 16 : 11)
-
-            Capsule()
-                .stroke(color,
-                        style: StrokeStyle(lineWidth: isPad ? 4 : 3,
-                                           lineCap: .round,
-                                           dash: [isPad ? 13 : 10, isPad ? 9 : 7]))
-                .scaleEffect(x: pulses ? 1.15 : 1.08,
-                             y: pulses ? 1.30 : 1.16)
-                .shadow(color: .white.opacity(0.76), radius: 4)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true)) {
-                pulses = true
-            }
-        }
     }
 }
 

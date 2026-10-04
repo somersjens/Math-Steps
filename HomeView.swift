@@ -471,6 +471,10 @@ struct HomeView: View {
             iconShape
                 .fill(LinearGradient(colors: [character.skyColor, character.tintColor],
                                      startPoint: .top, endPoint: .bottom))
+            // Keep the frame behind the animal so tall details such as the
+            // penguin's crest can deliberately overlap it.
+            iconShape
+                .stroke(.white.opacity(0.9), lineWidth: 2)
             // The portrait deliberately renders beyond the circular slot. A
             // 20% lift gives every animal more presence without enlarging the
             // header's layout footprint or pushing the name/streak sideways.
@@ -483,10 +487,6 @@ struct HomeView: View {
             .accessibilityHidden(true)
         }
         .frame(width: box, height: box)
-        .clipShape(iconShape)
-        .overlay {
-            iconShape.stroke(.white.opacity(0.9), lineWidth: 2)
-        }
         .shadow(color: character.deepColor.opacity(0.18),
                 radius: 7,
                 y: 3)

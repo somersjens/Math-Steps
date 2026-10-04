@@ -18,6 +18,69 @@ private struct QueuedStepAnswer: Equatable {
     let lane: Int
 }
 
+/// A score reward owns its flight independently from the character. Fast
+/// players can therefore start the next jump while an earlier reward keeps
+/// travelling to the HUD, without either animation cancelling the other.
+private struct StepRewardFlight: Identifiable {
+    let id = UUID()
+    let source: CGPoint
+    var progress: CGFloat = 0
+}
+
+/// Authored against the idle frame of every character. `widthRatio` is the
+/// clear space between that character's hands; `verticalOffsetRatio` places
+/// the centre of the chest on the hands rather than on the square PNG canvas.
+/// The same values drive both the island chest and the carried chest, making
+/// the pickup a seamless layer transfer with no size or position pop.
+private struct StepGoalChestMetrics {
+    let widthRatio: CGFloat
+    let verticalOffsetRatio: CGFloat
+
+    var aspectRatio: CGFloat { 0.61 }
+
+    init(characterID: String) {
+        switch characterID {
+        case "lion":
+            widthRatio = 0.36
+            verticalOffsetRatio = 0.14
+        case "octopus":
+            widthRatio = 0.46
+            verticalOffsetRatio = 0.13
+        case "crab":
+            widthRatio = 0.48
+            verticalOffsetRatio = 0.10
+        case "elephant":
+            widthRatio = 0.36
+            verticalOffsetRatio = 0.16
+        case "bear":
+            widthRatio = 0.38
+            verticalOffsetRatio = 0.16
+        case "fox":
+            widthRatio = 0.38
+            verticalOffsetRatio = 0.16
+        case "frog":
+            widthRatio = 0.36
+            verticalOffsetRatio = 0.14
+        case "penguin":
+            widthRatio = 0.32
+            verticalOffsetRatio = 0.09
+        case "bunny":
+            widthRatio = 0.36
+            verticalOffsetRatio = 0.15
+        default: // dog
+            widthRatio = 0.38
+            verticalOffsetRatio = 0.14
+        }
+    }
+}
+
+private enum StepCharacterPlayback {
+    case fullJump
+    /// Crouch and take-off only. The last airborne pose is held until the
+    /// character has left the screen; there is no landing/recovery frame.
+    case finaleTakeoff
+}
+
 struct MathStepsPlayfield: View {
     let round: GameRound?
     let selectedOptionID: UUID?
@@ -44,6 +107,9 @@ struct MathStepsPlayfield: View {
     let onSelect: (UUID) -> Bool
     let onRewardArrived: () -> Void
     let onCorrectLanding: () -> Void
+    /// Fires only once the failed jump, rewind and lift back to the start have
+    /// all completed. The tutorial uses this as the clock's start boundary.
+    let onWrongFallCompleted: () -> Void
     let onEntranceComplete: () -> Void
     let onLevelCompletionFinished: () -> Void
     let onTimeOutFinished: () -> Void
@@ -63,6 +129,7 @@ struct MathStepsPlayfield: View {
     /// of this parent prevents them from interrupting an in-flight camera and
     /// answer-label animation.
     @State private var characterAnimationID = 0
+    @State private var characterPlayback = StepCharacterPlayback.fullJump
     @State private var jumpProgress: CGFloat = 0
     @State private var jumpDestinationX: CGFloat = 0
     @State private var jumpDestinationY: CGFloat = 0
@@ -78,6 +145,8 @@ struct MathStepsPlayfield: View {
     @State private var currentRowNumbersMuted = false
     @State private var landingImpact = false
     @State private var landingBurstProgress: CGFloat = 0
+    @State private var landingImpactRouteProgress: CGFloat = 0
+    @State private var landingEffectToken = 0
     @State private var hatchOpen = false
     @State private var liftPlatformY: CGFloat = 0
     @State private var liftPlatformVisible = false
@@ -89,12 +158,10 @@ struct MathStepsPlayfield: View {
     /// Drives the loose pieces of a failed glass tile. It starts at the exact
     /// contact frame and shares the character's downward acceleration.
     @State private var shatterProgress: CGFloat = 0
-    @State private var rewardVisible = false
-    @State private var rewardFlightProgress: CGFloat = 0
+    @State private var rewardFlights: [StepRewardFlight] = []
     /// Half again as long as the original flight, so the trophy stays readable
     /// on its way to the score. The score ticks at the same moment it arrives.
     private var rewardFlightDuration: Double { reduceMotion ? 0.24 : 1.17 }
-    @State private var rewardSource = CGPoint.zero
     /// Absolute route position while the camera travels back after a fall.
     /// Nil during normal play; zero means the starting platform is reached.
     @State private var rewindPosition: CGFloat?
@@ -183,7 +250,8 @@ struct MathStepsPlayfield: View {
                 character: character,
                 renderedSide: characterSize
             )
-            let visualCameraPhase = renderedCameraPhase
+            let chestMetrics = StepGoalChestMetrics(characterID: character.id)
+            let carriedChestWidth = characterSize * chestMetrics.widthRatio
             let goalDepth = victoryGoalDepth
                 ?? max(0, CGFloat(routeRoundCount) - routeProgress)
             // The four supports belong to the route itself. End them inside
@@ -265,16 +333,20 @@ struct MathStepsPlayfield: View {
                     .accessibilityHidden(true)
 
                 characterBack
-                    .overlay(alignment: .center) {
+                    // The character artwork is the foreground layer. This
+                    // keeps its hands and body in front of the carried chest
+                    // instead of pasting the chest over the complete sprite.
+                    .background(alignment: .center) {
                         if victoryChestAttached {
-                            StepGoalChest()
-                                .frame(width: characterSize * 0.40,
-                                       height: characterSize * 0.24)
-                                // In front of the torso: this reads as the dog
-                                // carrying the prize, rather than balancing it
-                                // on its head during the exit jump.
-                                .offset(y: characterSize * 0.14)
-                                .transition(.scale(scale: 0.35).combined(with: .opacity))
+                            StepGoalChest(character: character)
+                                .frame(width: carriedChestWidth,
+                                       height: carriedChestWidth
+                                        * chestMetrics.aspectRatio)
+                                // The idle sprites have different arm lengths
+                                // and canvas padding. Each chest sits on the
+                                // actual hands instead of one generic torso Y.
+                                .offset(y: characterSize
+                                    * chestMetrics.verticalOffsetRatio)
                         }
                     }
                     .frame(width: characterSize, height: characterSize)
@@ -292,8 +364,7 @@ struct MathStepsPlayfield: View {
                                                   fallsThrough: jumpFallsThrough,
                                                   fallDestinationY: jumpFallDestinationY,
                                                   fallRotation: jumpFallRotation,
-                                                  preservesScale: victoryInProgress
-                                                    && !victoryChestAttached,
+                                                  preservesScale: victoryInProgress,
                                                   reduceMotion: reduceMotion))
                     .shadow(color: .black.opacity(0.30),
                             radius: jumpProgress > 0 && jumpProgress < 1 ? 15 : 9,
@@ -305,7 +376,10 @@ struct MathStepsPlayfield: View {
                     .accessibilityHidden(true)
 
                 if landingImpact {
-                    let impactDepth = -visualCameraPhase
+                    // Keep the burst attached to the completed stone when the
+                    // next question resets the camera or already starts moving.
+                    let impactDepth = -1
+                        - max(0, routeProgress - landingImpactRouteProgress)
                     StepCorrectBurst(character: character,
                                      isPad: isPad,
                                      progress: landingBurstProgress,
@@ -355,15 +429,15 @@ struct MathStepsPlayfield: View {
                     startDeckForeground(layout: layout)
                 }
 
-                if rewardVisible {
+                ForEach(rewardFlights) { flight in
                     StepFlyingScoreNut(character: character,
                                        isPad: isPad,
-                                       progress: rewardFlightProgress,
-                                       source: rewardSource,
+                                       progress: flight.progress,
+                                       source: flight.source,
                                        target: scoreTarget,
                                        reduceMotion: reduceMotion)
-                        .zIndex(30)
-                        .allowsHitTesting(false)
+                    .zIndex(30)
+                    .allowsHitTesting(false)
                 }
 
                 if restartMessageVisible { restartBadge(layout: layout) }
@@ -385,7 +459,22 @@ struct MathStepsPlayfield: View {
                 if active { playEntrance(layout: layout) }
             }
             .onChange(of: playsLevelCompletion) { _, active in
-                if active { playCompletion(layout: layout) }
+                if active {
+                    playCompletion(layout: layout)
+                } else if victoryInProgress {
+                    // The result card now owns the screen. Retire the finale
+                    // without restoring the actor; a later Play Again reset
+                    // will make it visible at the new run's start position.
+                    animationToken &+= 1
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        victoryInProgress = false
+                        victoryChestAttached = false
+                        victoryGoalDepth = nil
+                        dogOpacity = 0
+                    }
+                }
             }
             .onChange(of: playsTimeOutFinale) { _, active in
                 if active { playTimeOut() }
@@ -427,6 +516,8 @@ struct MathStepsPlayfield: View {
                                       isPad: isPad,
                                       round: routeRounds[routeIndex],
                                       brokenOptionIDs: brokenRouteOptionIDs,
+                                      hidesIncorrectAnswers: tutorialPlan.hidesIncorrectAnswers
+                                        && routeRounds[routeIndex].number <= 2,
                                       perspective: perspective,
                                       mutesNumbers: true,
                                       usesDetailedEffects: false)
@@ -460,6 +551,8 @@ struct MathStepsPlayfield: View {
                                       isPad: isPad,
                                       round: routeRounds[routeIndex],
                                       brokenOptionIDs: brokenRouteOptionIDs,
+                                      hidesIncorrectAnswers: tutorialPlan.hidesIncorrectAnswers
+                                        && routeRounds[routeIndex].number <= 2,
                                       perspective: perspective,
                                       mutesNumbers: true,
                                       usesDetailedEffects: false)
@@ -479,6 +572,14 @@ struct MathStepsPlayfield: View {
     private func answerTiles(layout: StepCourseLayout) -> some View {
         let depth = -renderedCameraPhase
         let perspective = layout.tilePerspective(at: depth)
+        // `round` is published before `selectedOptionID` during advancement.
+        // Treat a selection as belonging to this row only when its option is
+        // still present, so the new row becomes fully coloured in the exact
+        // render pass in which the new question appears.
+        let selectionBelongsToRow = round?.options.contains(where: {
+            $0.id == selectedOptionID
+        }) ?? false
+        let mutesNumbers = currentRowNumbersMuted && selectionBelongsToRow
         return HStack(spacing: 0) {
             ForEach(Array((round?.options ?? []).prefix(3).enumerated()), id: \.element.id) { lane, option in
                 // Keep the selected tile alive for the complete failure beat.
@@ -486,7 +587,11 @@ struct MathStepsPlayfield: View {
                 // it missing would remove the shards on their very first frame.
                 let isActiveWrongTile = selectedOptionID == option.id
                     && pendingWrongID == option.id
-                let isMissing = brokenOptionIDs.contains(option.id) && !isActiveWrongTile
+                let isTutorialGap = tutorialPlan.hidesIncorrectAnswers
+                    && (round?.number ?? 0) <= 2
+                    && !option.isCorrect
+                let isMissing = (brokenOptionIDs.contains(option.id) || isTutorialGap)
+                    && !isActiveWrongTile
                 Group {
                     if isMissing {
                         BrokenStepGap(character: character,
@@ -508,7 +613,7 @@ struct MathStepsPlayfield: View {
                                             : 0,
                                           shatterDistance: layout.size.height * 0.72,
                                           isHighlighted: tutorialPlan.highlightsCorrectNut && option.isCorrect,
-                                          isNumberMuted: currentRowNumbersMuted)
+                                          isNumberMuted: mutesNumbers)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -548,6 +653,8 @@ struct MathStepsPlayfield: View {
                                   isPad: isPad,
                                   round: landedRound,
                                   brokenOptionIDs: brokenRouteOptionIDs,
+                                  hidesIncorrectAnswers: tutorialPlan.hidesIncorrectAnswers
+                                    && landedRound.number <= 2,
                                   perspective: perspective,
                                   mutesNumbers: true,
                                   usesDetailedEffects: true)
@@ -590,10 +697,33 @@ struct MathStepsPlayfield: View {
         // viewport; near the end it follows the same depth curve as the rows
         // and therefore enters without a separate pop-in animation.
         let width = layout.goalWidth(at: depth)
+        let height = layout.goalHeight(for: width)
+        let characterSize = StepCharacterSprite.hasAnimation(for: character)
+            ? layout.dogSize
+                * StepCharacterAnimation.characterScale(for: character.id)
+            : layout.dogSize / 1.5
+        let chestMetrics = StepGoalChestMetrics(characterID: character.id)
+        let perspective = layout.scale(at: depth) / layout.scale(at: 0)
+        let chestWidth = characterSize * chestMetrics.widthRatio * perspective
+        let chestHeight = chestWidth * chestMetrics.aspectRatio
+        let groundingAdjustment = characterSize
+            * StepCharacterAnimation.groundingOffsetRatio(for: character.id)
+            * perspective
+        // This is the chest's eventual global centre expressed in the island's
+        // local coordinates. At depth zero it is pixel-identical to the chest
+        // overlay in the character's idle pose.
+        let chestCenterY = height * 0.5
+            + width * 0.08
+            - characterSize * 0.43 * perspective
+            + groundingAdjustment
+            + characterSize * chestMetrics.verticalOffsetRatio * perspective
         return StepGoalIsland(character: character,
                               isPad: isPad,
-                              hidesChest: victoryChestAttached)
-            .frame(width: width, height: layout.goalHeight(for: width))
+                              hidesChest: victoryChestAttached,
+                              chestSize: CGSize(width: chestWidth,
+                                                height: chestHeight),
+                              chestCenterY: chestCenterY)
+            .frame(width: width, height: height)
             .position(x: layout.size.width / 2,
                       y: layout.y(at: depth))
             .allowsHitTesting(false)
@@ -647,6 +777,7 @@ struct MathStepsPlayfield: View {
             if StepCharacterSprite.hasAnimation(for: character) {
                 StepCharacterSprite(character: character,
                                     animationID: characterAnimationID,
+                                    playback: characterPlayback,
                                     reduceMotion: reduceMotion)
             } else {
                 HooklessCharacterArtwork(character: character)
@@ -694,9 +825,13 @@ struct MathStepsPlayfield: View {
         }
     }
 
-    private func animateCharacterJump(token: Int) {
+    private func animateCharacterJump(
+        token: Int,
+        playback: StepCharacterPlayback = .fullJump
+    ) {
         guard StepCharacterSprite.hasAnimation(for: character),
               animationToken == token else { return }
+        characterPlayback = playback
         characterAnimationID &+= 1
     }
 
@@ -732,23 +867,33 @@ struct MathStepsPlayfield: View {
             var effectTransaction = Transaction()
             effectTransaction.disablesAnimations = true
             withTransaction(effectTransaction) {
+                landingEffectToken &+= 1
+                landingImpactRouteProgress = routeProgress
                 landingImpact = true
                 landingBurstProgress = 0
-                rewardSource = CGPoint(x: layout.size.width / 2
+                if earnsNewHighestStep {
+                    rewardFlights.append(StepRewardFlight(
+                        source: CGPoint(x: layout.size.width / 2
                                         + layout.laneOffset(lane: lane, at: -1),
                                        y: layout.y(at: -1))
-                rewardFlightProgress = 0
-                rewardVisible = earnsNewHighestStep
+                    ))
+                }
             }
+            let effectToken = landingEffectToken
+            let rewardID = rewardFlights.last?.id
             DispatchQueue.main.async {
-                guard animationToken == token else { return }
+                guard landingEffectToken == effectToken else { return }
                 withAnimation(.easeOut(duration: reduceMotion ? 0.10 : 0.62)) {
                     landingBurstProgress = 1
                 }
-                if earnsNewHighestStep {
+                if earnsNewHighestStep,
+                   let rewardID,
+                   let rewardIndex = rewardFlights.firstIndex(where: {
+                       $0.id == rewardID
+                   }) {
                     withAnimation(.timingCurve(0.22, 0.72, 0.22, 1,
                                                duration: rewardFlightDuration)) {
-                        rewardFlightProgress = 1
+                        rewardFlights[rewardIndex].progress = 1
                     }
                 }
             }
@@ -765,6 +910,10 @@ struct MathStepsPlayfield: View {
             // level-completion choreography, because there is no next sum.
             if !completesLevel {
                 onCorrectLanding()
+                // The authored character sequence has completed at contact.
+                // Only the independent burst and score flight remain, so the
+                // next answer may start without waiting for those effects.
+                answerJumpInProgress = false
             }
             if !earnsNewHighestStep {
                 onRewardArrived()
@@ -773,26 +922,26 @@ struct MathStepsPlayfield: View {
                 ? rewardFlightDuration
                 : (reduceMotion ? 0.01 : 0.04)
             DispatchQueue.main.asyncAfter(deadline: .now() + scoreArrivalDelay) {
-                guard animationToken == token else { return }
                 if earnsNewHighestStep {
+                    guard let rewardID,
+                          rewardFlights.contains(where: { $0.id == rewardID })
+                    else { return }
                     onRewardArrived()
                     withAnimation(.easeOut(duration: 0.10)) {
-                        rewardVisible = false
+                        rewardFlights.removeAll(where: { $0.id == rewardID })
                     }
                 }
                 if completesLevel {
                     onCorrectLanding()
+                    answerJumpInProgress = false
                 }
             }
-            let settleDuration = earnsNewHighestStep
-                ? scoreArrivalDelay + 0.02
-                : (reduceMotion ? 0.02 : 0.16)
-            DispatchQueue.main.asyncAfter(deadline: .now() + settleDuration) {
-                guard animationToken == token else { return }
+            let impactDuration = reduceMotion ? 0.10 : 0.62
+            DispatchQueue.main.asyncAfter(deadline: .now() + impactDuration) {
+                guard landingEffectToken == effectToken else { return }
                 withAnimation(.easeOut(duration: reduceMotion ? 0.04 : 0.12)) {
                     landingImpact = false
                 }
-                answerJumpInProgress = false
             }
         }
     }
@@ -988,6 +1137,7 @@ struct MathStepsPlayfield: View {
             guard animationToken == token else { return }
             withAnimation(.easeOut(duration: 0.16)) { restartMessageVisible = false }
             answerJumpInProgress = false
+            onWrongFallCompleted()
         }
     }
 
@@ -1016,10 +1166,6 @@ struct MathStepsPlayfield: View {
         crackedID = nil
         brokenID = nil
         shatterProgress = 0
-        rewardVisible = false
-        rewardFlightProgress = 0
-        landingImpact = false
-        landingBurstProgress = 0
         cameraPhase = 0
         routeProgress = CGFloat(currentStep)
         cameraLaneOffset = 0
@@ -1142,10 +1288,10 @@ struct MathStepsPlayfield: View {
     private func playCompletion(layout: StepCourseLayout) {
         animationToken &+= 1
         let token = animationToken
+        landingEffectToken &+= 1
         victoryInProgress = true
         victoryChestAttached = false
-        rewardVisible = false
-        rewardFlightProgress = 0
+        rewardFlights.removeAll()
         landingImpact = false
         landingBurstProgress = 0
         // Freeze the exact renderer-owned position used in the preceding
@@ -1191,30 +1337,51 @@ struct MathStepsPlayfield: View {
             }
         }
 
-        // The island chest transfers into the dog's arms, then both leave the
-        // board together in one celebratory jump above the viewport.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.28 : 1.02)) {
+        // First show a readable crouch while the chest remains physically on
+        // the island, behind the character. Frame 3 is deliberately held for
+        // a moment before frames 4 and 5 turn that anticipation into lift.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.32 : 1.18)) {
             guard animationToken == token else { return }
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.60)) {
+            animateCharacterJump(token: token, playback: .finaleTakeoff)
+        }
+
+        // Pick up the chest while the deepest crouch is still visible. The
+        // following frame changes then read as an actual launch with weight,
+        // rather than a standing character that suddenly disappears.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.43 : 1.80)) {
+            guard animationToken == token else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
                 victoryChestAttached = true
-                dogY = targetDogY - (isPad ? 10 : 6)
-                dogRotation = -3
+                // Reuse the same animatable path that drives every normal
+                // jump. Unlike a layout offset, this modifier explicitly
+                // interpolates `jumpProgress` on every rendered frame.
+                jumpProgress = 0
+                jumpDestinationX = 0
+                jumpDestinationY = -layout.size.height * 1.45
+                jumpLateralArc = 0
+                jumpHeight = reduceMotion ? 0 : layout.jumpHeight * 0.72
+            }
+            withAnimation(.timingCurve(0.34, 0.02, 0.76, 1,
+                                       duration: reduceMotion ? 0.28 : 1.28)) {
+                // With no horizontal destination or lateral arc, the complete
+                // foreground character and background chest travel vertically
+                // until both have crossed the top edge.
+                jumpProgress = 1
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.40 : 1.72)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.76 : 3.16)) {
             guard animationToken == token else { return }
-            animateCharacterJump(token: token)
-            withAnimation(.timingCurve(0.24, 0.02, 0.26, 1,
-                                       duration: reduceMotion ? 0.24 : 0.88)) {
-                dogY = -layout.size.height
-                dogScale = 0.82
-                dogRotation = -7
+            // Keep the completed actor out of every later render, including
+            // the full-screen-cover dismissal back to the menu. Model cleanup
+            // can no longer make it flash at its old standing position.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                dogOpacity = 0
             }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.72 : 2.72)) {
-            guard animationToken == token else { return }
             onLevelCompletionFinished()
         }
     }
@@ -1902,6 +2069,7 @@ private struct StepDecorativeRow: View {
     let isPad: Bool
     let round: GameRound?
     let brokenOptionIDs: Set<UUID>
+    let hidesIncorrectAnswers: Bool
     let perspective: StepTilePerspective
     /// Only the active answer row is fully legible. Future, completed and
     /// rewind rows keep their labels dimmed until they become the active row.
@@ -1915,7 +2083,8 @@ private struct StepDecorativeRow: View {
                 ForEach(Array((round?.options ?? []).prefix(3).enumerated()),
                         id: \.element.id) { lane, option in
                     Group {
-                        if brokenOptionIDs.contains(option.id) {
+                        if brokenOptionIDs.contains(option.id)
+                            || (hidesIncorrectAnswers && !option.isCorrect) {
                             BrokenStepGap(character: character,
                                           lane: lane,
                                           perspective: perspective)
@@ -2194,6 +2363,8 @@ private struct StepGoalIsland: View {
     let character: AnimalCharacter
     let isPad: Bool
     let hidesChest: Bool
+    let chestSize: CGSize
+    let chestCenterY: CGFloat
 
     var body: some View {
         GeometryReader { proxy in
@@ -2246,11 +2417,13 @@ private struct StepGoalIsland: View {
                     }
                     .position(x: width * 0.5, y: height * 0.43)
 
+                StepGoalIslandDecorations(character: character)
+                    .frame(width: width, height: height)
+
                 if !hidesChest {
-                    StepGoalChest()
-                        .frame(width: width * 0.23, height: height * 0.33)
-                        .position(x: width * 0.5, y: height * 0.35)
-                        .transition(.scale(scale: 0.35).combined(with: .opacity))
+                    StepGoalChest(character: character)
+                        .frame(width: chestSize.width, height: chestSize.height)
+                        .position(x: width * 0.5, y: chestCenterY)
                 }
 
                 // The pennants face away from the centre, share one flagpole
@@ -2298,47 +2471,613 @@ private struct StepGoalIsland: View {
     }
 }
 
+private enum StepGoalPrizeKind {
+    case bone, meat, shell, seaweed, peanut, honey, berries, fly, fish, carrot
+
+    init(characterID: String) {
+        switch characterID {
+        case "lion": self = .meat
+        case "octopus": self = .shell
+        case "crab": self = .seaweed
+        case "elephant": self = .peanut
+        case "bear": self = .honey
+        case "fox": self = .berries
+        case "frog": self = .fly
+        case "penguin": self = .fish
+        case "bunny": self = .carrot
+        default: self = .bone
+        }
+    }
+}
+
+/// Tiny vector treats stay crisp both on the distant island and on the much
+/// larger carried chest. They deliberately avoid emoji/font dependencies so
+/// every OS version renders the same prize.
+private struct StepGoalPrizeItem: View {
+    let kind: StepGoalPrizeKind
+
+    var body: some View {
+        Canvas { context, size in
+            switch kind {
+            case .bone: paintBone(in: &context, size: size)
+            case .meat: paintMeat(in: &context, size: size)
+            case .shell: paintShell(in: &context, size: size)
+            case .seaweed: paintSeaweed(in: &context, size: size)
+            case .peanut: paintPeanut(in: &context, size: size)
+            case .honey: paintHoney(in: &context, size: size)
+            case .berries: paintBerries(in: &context, size: size)
+            case .fly: paintFly(in: &context, size: size)
+            case .fish: paintFish(in: &context, size: size)
+            case .carrot: paintCarrot(in: &context, size: size)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func paintBone(in context: inout GraphicsContext, size: CGSize) {
+        let white = Color(red: 1.0, green: 0.95, blue: 0.82)
+        context.fill(Path(roundedRect: CGRect(x: size.width * 0.16,
+                                              y: size.height * 0.38,
+                                              width: size.width * 0.68,
+                                              height: size.height * 0.24),
+                               cornerRadius: size.height * 0.12),
+                     with: .color(white))
+        for point in [CGPoint(x: 0.17, y: 0.34), CGPoint(x: 0.17, y: 0.66),
+                      CGPoint(x: 0.83, y: 0.34), CGPoint(x: 0.83, y: 0.66)] {
+            let radius = min(size.width, size.height) * 0.18
+            context.fill(Path(ellipseIn: CGRect(x: size.width * point.x - radius,
+                                                 y: size.height * point.y - radius,
+                                                 width: radius * 2,
+                                                 height: radius * 2)),
+                         with: .color(white))
+        }
+    }
+
+    private func paintMeat(in context: inout GraphicsContext, size: CGSize) {
+        let bone = Color(red: 1.0, green: 0.92, blue: 0.73)
+        context.fill(Path(roundedRect: CGRect(x: size.width * 0.46,
+                                              y: size.height * 0.50,
+                                              width: size.width * 0.40,
+                                              height: size.height * 0.18),
+                               cornerRadius: size.height * 0.09),
+                     with: .color(bone))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.72,
+                                             y: size.height * 0.45,
+                                             width: size.width * 0.22,
+                                             height: size.height * 0.28)),
+                     with: .color(bone))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.08,
+                                             y: size.height * 0.18,
+                                             width: size.width * 0.62,
+                                             height: size.height * 0.60)),
+                     with: .color(Color(red: 0.84, green: 0.20, blue: 0.13)))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.23,
+                                             y: size.height * 0.30,
+                                             width: size.width * 0.22,
+                                             height: size.height * 0.16)),
+                     with: .color(Color.pink.opacity(0.72)))
+    }
+
+    private func paintShell(in context: inout GraphicsContext, size: CGSize) {
+        var shell = Path()
+        shell.move(to: CGPoint(x: size.width * 0.50, y: size.height * 0.14))
+        shell.addCurve(to: CGPoint(x: size.width * 0.12, y: size.height * 0.78),
+                       control1: CGPoint(x: size.width * 0.20, y: size.height * 0.20),
+                       control2: CGPoint(x: size.width * 0.08, y: size.height * 0.50))
+        shell.addQuadCurve(to: CGPoint(x: size.width * 0.88, y: size.height * 0.78),
+                           control: CGPoint(x: size.width * 0.50, y: size.height * 0.94))
+        shell.addCurve(to: CGPoint(x: size.width * 0.50, y: size.height * 0.14),
+                       control1: CGPoint(x: size.width * 0.92, y: size.height * 0.50),
+                       control2: CGPoint(x: size.width * 0.80, y: size.height * 0.20))
+        context.fill(shell, with: .color(Color(red: 1.0, green: 0.63, blue: 0.71)))
+        for x in [0.28, 0.40, 0.60, 0.72] as [CGFloat] {
+            var rib = Path()
+            rib.move(to: CGPoint(x: size.width * 0.5, y: size.height * 0.22))
+            rib.addLine(to: CGPoint(x: size.width * x, y: size.height * 0.75))
+            context.stroke(rib, with: .color(.white.opacity(0.66)),
+                           lineWidth: max(0.7, size.width * 0.035))
+        }
+    }
+
+    private func paintSeaweed(in context: inout GraphicsContext, size: CGSize) {
+        for (x, lean) in [(0.28, -0.10), (0.50, 0.08), (0.72, -0.04)] as [(CGFloat, CGFloat)] {
+            var blade = Path()
+            blade.move(to: CGPoint(x: size.width * x, y: size.height * 0.88))
+            blade.addCurve(to: CGPoint(x: size.width * (x + lean), y: size.height * 0.12),
+                           control1: CGPoint(x: size.width * (x - lean), y: size.height * 0.66),
+                           control2: CGPoint(x: size.width * (x + lean * 1.8), y: size.height * 0.38))
+            context.stroke(blade,
+                           with: .color(Color(red: 0.23, green: 0.75, blue: 0.35)),
+                           style: StrokeStyle(lineWidth: max(2, size.width * 0.14),
+                                              lineCap: .round))
+        }
+    }
+
+    private func paintPeanut(in context: inout GraphicsContext, size: CGSize) {
+        let shellColor = Color(red: 0.84, green: 0.58, blue: 0.24)
+        let stroke = Color(red: 0.54, green: 0.32, blue: 0.10)
+        let lobes = [CGRect(x: size.width * 0.10, y: size.height * 0.28,
+                            width: size.width * 0.52, height: size.height * 0.46),
+                     CGRect(x: size.width * 0.38, y: size.height * 0.22,
+                            width: size.width * 0.52, height: size.height * 0.46)]
+        for rect in lobes {
+            context.fill(Path(ellipseIn: rect), with: .color(shellColor))
+            context.stroke(Path(ellipseIn: rect), with: .color(stroke.opacity(0.72)),
+                           lineWidth: max(0.7, size.width * 0.035))
+        }
+        for x in [0.31, 0.49, 0.67] as [CGFloat] {
+            var mark = Path()
+            mark.move(to: CGPoint(x: size.width * (x - 0.08), y: size.height * 0.38))
+            mark.addLine(to: CGPoint(x: size.width * (x + 0.08), y: size.height * 0.62))
+            context.stroke(mark, with: .color(stroke.opacity(0.48)),
+                           lineWidth: max(0.6, size.width * 0.025))
+        }
+    }
+
+    private func paintHoney(in context: inout GraphicsContext, size: CGSize) {
+        let pot = CGRect(x: size.width * 0.16, y: size.height * 0.26,
+                         width: size.width * 0.68, height: size.height * 0.62)
+        context.fill(Path(roundedRect: pot, cornerRadius: size.width * 0.18),
+                     with: .color(Color(red: 0.93, green: 0.58, blue: 0.07)))
+        context.fill(Path(roundedRect: CGRect(x: size.width * 0.10,
+                                              y: size.height * 0.20,
+                                              width: size.width * 0.80,
+                                              height: size.height * 0.18),
+                               cornerRadius: size.height * 0.09),
+                     with: .color(Color(red: 0.43, green: 0.22, blue: 0.08)))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.40,
+                                             y: size.height * 0.46,
+                                             width: size.width * 0.20,
+                                             height: size.height * 0.28)),
+                     with: .color(Color.yellow.opacity(0.88)))
+    }
+
+    private func paintBerries(in context: inout GraphicsContext, size: CGSize) {
+        let berry = Color(red: 0.72, green: 0.08, blue: 0.24)
+        for point in [CGPoint(x: 0.35, y: 0.58), CGPoint(x: 0.56, y: 0.50),
+                      CGPoint(x: 0.64, y: 0.70), CGPoint(x: 0.42, y: 0.74)] {
+            let r = min(size.width, size.height) * 0.19
+            context.fill(Path(ellipseIn: CGRect(x: size.width * point.x - r,
+                                                 y: size.height * point.y - r,
+                                                 width: r * 2, height: r * 2)),
+                         with: .color(berry))
+        }
+        var leaf = Path()
+        leaf.move(to: CGPoint(x: size.width * 0.46, y: size.height * 0.43))
+        leaf.addQuadCurve(to: CGPoint(x: size.width * 0.80, y: size.height * 0.20),
+                          control: CGPoint(x: size.width * 0.76, y: size.height * 0.48))
+        leaf.addQuadCurve(to: CGPoint(x: size.width * 0.46, y: size.height * 0.43),
+                          control: CGPoint(x: size.width * 0.48, y: size.height * 0.12))
+        context.fill(leaf, with: .color(Color.green))
+    }
+
+    private func paintFly(in context: inout GraphicsContext, size: CGSize) {
+        let wing = Color.white.opacity(0.80)
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.10, y: size.height * 0.18,
+                                             width: size.width * 0.42, height: size.height * 0.38)),
+                     with: .color(wing))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.48, y: size.height * 0.18,
+                                             width: size.width * 0.42, height: size.height * 0.38)),
+                     with: .color(wing))
+        context.fill(Path(roundedRect: CGRect(x: size.width * 0.38,
+                                              y: size.height * 0.28,
+                                              width: size.width * 0.24,
+                                              height: size.height * 0.56),
+                               cornerRadius: size.width * 0.12),
+                     with: .color(Color(red: 0.12, green: 0.15, blue: 0.13)))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.38, y: size.height * 0.16,
+                                             width: size.width * 0.24, height: size.height * 0.24)),
+                     with: .color(Color(red: 0.18, green: 0.20, blue: 0.17)))
+    }
+
+    private func paintFish(in context: inout GraphicsContext, size: CGSize) {
+        let blue = Color(red: 0.22, green: 0.68, blue: 0.91)
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.12, y: size.height * 0.27,
+                                             width: size.width * 0.62, height: size.height * 0.48)),
+                     with: .color(blue))
+        var tail = Path()
+        tail.move(to: CGPoint(x: size.width * 0.68, y: size.height * 0.50))
+        tail.addLine(to: CGPoint(x: size.width * 0.94, y: size.height * 0.20))
+        tail.addLine(to: CGPoint(x: size.width * 0.94, y: size.height * 0.80))
+        tail.closeSubpath()
+        context.fill(tail, with: .color(blue))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.22, y: size.height * 0.39,
+                                             width: size.width * 0.10, height: size.height * 0.10)),
+                     with: .color(.white))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.25, y: size.height * 0.42,
+                                             width: size.width * 0.05, height: size.height * 0.05)),
+                     with: .color(.black))
+    }
+
+    private func paintCarrot(in context: inout GraphicsContext, size: CGSize) {
+        var carrot = Path()
+        carrot.move(to: CGPoint(x: size.width * 0.24, y: size.height * 0.30))
+        carrot.addQuadCurve(to: CGPoint(x: size.width * 0.54, y: size.height * 0.92),
+                            control: CGPoint(x: size.width * 0.40, y: size.height * 0.72))
+        carrot.addQuadCurve(to: CGPoint(x: size.width * 0.72, y: size.height * 0.30),
+                            control: CGPoint(x: size.width * 0.68, y: size.height * 0.72))
+        carrot.closeSubpath()
+        context.fill(carrot, with: .color(Color.orange))
+        for (start, end) in [(0.34, 0.08), (0.49, 0.03), (0.63, 0.10)] as [(CGFloat, CGFloat)] {
+            var leaf = Path()
+            leaf.move(to: CGPoint(x: size.width * 0.48, y: size.height * 0.34))
+            leaf.addLine(to: CGPoint(x: size.width * start, y: size.height * end))
+            context.stroke(leaf, with: .color(Color.green),
+                           style: StrokeStyle(lineWidth: max(2, size.width * 0.10),
+                                              lineCap: .round))
+        }
+    }
+}
+
+/// Small, character-specific habitat vignettes turn the finish from a generic
+/// coloured disc into a tiny destination: agility equipment, savanna grass,
+/// coral, ice, flowers and the other visual cues of each animal's world.
+private struct StepGoalIslandDecorations: View {
+    let character: AnimalCharacter
+
+    var body: some View {
+        Canvas { context, size in
+            switch character.id {
+            case "lion": paintSavanna(in: &context, size: size)
+            case "octopus": paintCoral(in: &context, size: size)
+            case "crab": paintShore(in: &context, size: size)
+            case "elephant": paintOasis(in: &context, size: size)
+            case "bear": paintForest(in: &context, size: size)
+            case "fox": paintAutumn(in: &context, size: size)
+            case "frog": paintPond(in: &context, size: size)
+            case "penguin": paintIce(in: &context, size: size)
+            case "bunny": paintMeadow(in: &context, size: size)
+            default: paintAgility(in: &context, size: size)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func paintAgility(in context: inout GraphicsContext, size: CGSize) {
+        let line = max(1.2, size.width * 0.009)
+        let hoop = CGRect(x: size.width * 0.10, y: size.height * 0.22,
+                          width: size.width * 0.18, height: size.height * 0.31)
+        context.stroke(Path(ellipseIn: hoop), with: .color(Color.orange),
+                       style: StrokeStyle(lineWidth: line, lineCap: .round))
+        for x in [0.11, 0.27] as [CGFloat] {
+            var pole = Path()
+            pole.move(to: CGPoint(x: size.width * x, y: size.height * 0.40))
+            pole.addLine(to: CGPoint(x: size.width * x, y: size.height * 0.57))
+            context.stroke(pole, with: .color(.white), lineWidth: line * 0.72)
+        }
+        for x in [0.76, 0.84] as [CGFloat] {
+            var cone = Path()
+            cone.move(to: CGPoint(x: size.width * (x - 0.035), y: size.height * 0.57))
+            cone.addLine(to: CGPoint(x: size.width * x, y: size.height * 0.31))
+            cone.addLine(to: CGPoint(x: size.width * (x + 0.035), y: size.height * 0.57))
+            cone.closeSubpath()
+            context.fill(cone, with: .color(x < 0.8 ? Color.orange : character.color))
+        }
+    }
+
+    private func paintSavanna(in context: inout GraphicsContext, size: CGSize) {
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.12, y: size.height * 0.17,
+                                             width: size.width * 0.12, height: size.width * 0.12)),
+                     with: .color(Color.yellow.opacity(0.92)))
+        grass(in: &context, size: size, originX: 0.14, color: character.deepColor)
+        grass(in: &context, size: size, originX: 0.81, color: character.deepColor)
+    }
+
+    private func paintCoral(in context: inout GraphicsContext, size: CGSize) {
+        coral(in: &context, size: size, originX: 0.16,
+              color: Color(red: 1.0, green: 0.34, blue: 0.56))
+        coral(in: &context, size: size, originX: 0.82,
+              color: Color(red: 0.20, green: 0.76, blue: 0.77))
+        for point in [CGPoint(x: 0.10, y: 0.24), CGPoint(x: 0.28, y: 0.19),
+                      CGPoint(x: 0.72, y: 0.25), CGPoint(x: 0.90, y: 0.18)] {
+            let r = size.width * 0.012
+            context.stroke(Path(ellipseIn: CGRect(x: size.width * point.x - r,
+                                                   y: size.height * point.y - r,
+                                                   width: r * 2, height: r * 2)),
+                           with: .color(.white.opacity(0.76)),
+                           lineWidth: max(0.8, size.width * 0.004))
+        }
+    }
+
+    private func paintShore(in context: inout GraphicsContext, size: CGSize) {
+        shell(in: &context, size: size, center: CGPoint(x: 0.17, y: 0.47),
+              color: Color(red: 1.0, green: 0.76, blue: 0.48))
+        shell(in: &context, size: size, center: CGPoint(x: 0.83, y: 0.45),
+              color: Color(red: 1.0, green: 0.56, blue: 0.52))
+        grass(in: &context, size: size, originX: 0.28,
+              color: Color(red: 0.18, green: 0.66, blue: 0.44))
+        grass(in: &context, size: size, originX: 0.72,
+              color: Color(red: 0.18, green: 0.66, blue: 0.44))
+    }
+
+    private func paintOasis(in context: inout GraphicsContext, size: CGSize) {
+        leafFan(in: &context, size: size, originX: 0.16,
+                color: Color(red: 0.22, green: 0.63, blue: 0.27))
+        leafFan(in: &context, size: size, originX: 0.84,
+                color: Color(red: 0.28, green: 0.72, blue: 0.35))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * 0.72, y: size.height * 0.48,
+                                             width: size.width * 0.15, height: size.height * 0.07)),
+                     with: .color(Color.blue.opacity(0.50)))
+    }
+
+    private func paintForest(in context: inout GraphicsContext, size: CGSize) {
+        pine(in: &context, size: size, x: 0.15, color: Color(red: 0.13, green: 0.42, blue: 0.20))
+        pine(in: &context, size: size, x: 0.84, color: Color(red: 0.18, green: 0.50, blue: 0.24))
+        context.fill(Path(roundedRect: CGRect(x: size.width * 0.73,
+                                              y: size.height * 0.44,
+                                              width: size.width * 0.09,
+                                              height: size.height * 0.12),
+                               cornerRadius: size.width * 0.025),
+                     with: .color(Color(red: 0.95, green: 0.61, blue: 0.08)))
+    }
+
+    private func paintAutumn(in context: inout GraphicsContext, size: CGSize) {
+        mushroom(in: &context, size: size, x: 0.16,
+                 color: Color(red: 0.88, green: 0.23, blue: 0.10))
+        mushroom(in: &context, size: size, x: 0.82,
+                 color: Color(red: 0.96, green: 0.57, blue: 0.10))
+        for point in [CGPoint(x: 0.26, y: 0.42), CGPoint(x: 0.72, y: 0.38)] {
+            context.fill(Path(ellipseIn: CGRect(x: size.width * point.x,
+                                                 y: size.height * point.y,
+                                                 width: size.width * 0.08,
+                                                 height: size.height * 0.04)),
+                         with: .color(character.deepColor.opacity(0.82)))
+        }
+    }
+
+    private func paintPond(in context: inout GraphicsContext, size: CGSize) {
+        for x in [0.13, 0.20, 0.80, 0.87] as [CGFloat] {
+            var reed = Path()
+            reed.move(to: CGPoint(x: size.width * x, y: size.height * 0.58))
+            reed.addLine(to: CGPoint(x: size.width * (x + (x < 0.5 ? 0.02 : -0.02)),
+                                     y: size.height * 0.26))
+            context.stroke(reed, with: .color(Color(red: 0.18, green: 0.52, blue: 0.17)),
+                           lineWidth: max(1, size.width * 0.007))
+        }
+        for x in [0.15, 0.77] as [CGFloat] {
+            context.fill(Path(ellipseIn: CGRect(x: size.width * x, y: size.height * 0.49,
+                                                 width: size.width * 0.12,
+                                                 height: size.height * 0.045)),
+                         with: .color(Color.green.opacity(0.86)))
+        }
+    }
+
+    private func paintIce(in context: inout GraphicsContext, size: CGSize) {
+        for (x, height) in [(0.12, 0.25), (0.20, 0.18), (0.79, 0.20),
+                            (0.87, 0.28)] as [(CGFloat, CGFloat)] {
+            var crystal = Path()
+            crystal.move(to: CGPoint(x: size.width * x, y: size.height * 0.58))
+            crystal.addLine(to: CGPoint(x: size.width * (x + 0.045),
+                                        y: size.height * height))
+            crystal.addLine(to: CGPoint(x: size.width * (x + 0.09),
+                                        y: size.height * 0.58))
+            crystal.closeSubpath()
+            context.fill(crystal, with: .color(Color.white.opacity(0.78)))
+        }
+        for x in [0.27, 0.70] as [CGFloat] {
+            context.fill(Path(ellipseIn: CGRect(x: size.width * x, y: size.height * 0.48,
+                                                 width: size.width * 0.07,
+                                                 height: size.width * 0.07)),
+                         with: .color(.white.opacity(0.88)))
+        }
+    }
+
+    private func paintMeadow(in context: inout GraphicsContext, size: CGSize) {
+        flower(in: &context, size: size, center: CGPoint(x: 0.16, y: 0.42),
+               color: Color.yellow)
+        flower(in: &context, size: size, center: CGPoint(x: 0.28, y: 0.50),
+               color: Color.pink)
+        flower(in: &context, size: size, center: CGPoint(x: 0.72, y: 0.48),
+               color: Color.purple.opacity(0.82))
+        flower(in: &context, size: size, center: CGPoint(x: 0.84, y: 0.40),
+               color: Color.white)
+    }
+
+    private func grass(in context: inout GraphicsContext,
+                       size: CGSize,
+                       originX: CGFloat,
+                       color: Color) {
+        for offset in [-0.045, 0, 0.045] as [CGFloat] {
+            var blade = Path()
+            blade.move(to: CGPoint(x: size.width * originX, y: size.height * 0.58))
+            blade.addQuadCurve(to: CGPoint(x: size.width * (originX + offset),
+                                           y: size.height * (0.30 + abs(offset))),
+                               control: CGPoint(x: size.width * (originX - offset * 0.5),
+                                                y: size.height * 0.43))
+            context.stroke(blade, with: .color(color),
+                           style: StrokeStyle(lineWidth: max(1, size.width * 0.008),
+                                              lineCap: .round))
+        }
+    }
+
+    private func coral(in context: inout GraphicsContext,
+                       size: CGSize,
+                       originX: CGFloat,
+                       color: Color) {
+        let line = max(1.5, size.width * 0.012)
+        var trunk = Path()
+        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.58))
+        trunk.addLine(to: CGPoint(x: size.width * originX, y: size.height * 0.29))
+        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.43))
+        trunk.addLine(to: CGPoint(x: size.width * (originX - 0.06), y: size.height * 0.34))
+        trunk.move(to: CGPoint(x: size.width * originX, y: size.height * 0.39))
+        trunk.addLine(to: CGPoint(x: size.width * (originX + 0.06), y: size.height * 0.31))
+        context.stroke(trunk, with: .color(color),
+                       style: StrokeStyle(lineWidth: line, lineCap: .round,
+                                          lineJoin: .round))
+    }
+
+    private func shell(in context: inout GraphicsContext,
+                       size: CGSize,
+                       center: CGPoint,
+                       color: Color) {
+        let rect = CGRect(x: size.width * (center.x - 0.06),
+                          y: size.height * (center.y - 0.09),
+                          width: size.width * 0.12,
+                          height: size.height * 0.16)
+        context.fill(Path(ellipseIn: rect), with: .color(color))
+        var seam = Path()
+        seam.move(to: CGPoint(x: size.width * center.x,
+                              y: size.height * (center.y - 0.07)))
+        seam.addLine(to: CGPoint(x: size.width * center.x,
+                                 y: size.height * (center.y + 0.06)))
+        context.stroke(seam, with: .color(.white.opacity(0.64)),
+                       lineWidth: max(0.7, size.width * 0.004))
+    }
+
+    private func leafFan(in context: inout GraphicsContext,
+                         size: CGSize,
+                         originX: CGFloat,
+                         color: Color) {
+        for angle in [-0.07, 0, 0.07] as [CGFloat] {
+            let rect = CGRect(x: size.width * (originX + angle - 0.035),
+                              y: size.height * (0.28 + abs(angle) * 0.6),
+                              width: size.width * 0.07,
+                              height: size.height * 0.28)
+            context.fill(Path(ellipseIn: rect), with: .color(color))
+        }
+    }
+
+    private func pine(in context: inout GraphicsContext,
+                      size: CGSize,
+                      x: CGFloat,
+                      color: Color) {
+        for (y, halfWidth) in [(0.24, 0.08), (0.34, 0.10),
+                               (0.44, 0.12)] as [(CGFloat, CGFloat)] {
+            var tier = Path()
+            tier.move(to: CGPoint(x: size.width * x, y: size.height * y))
+            tier.addLine(to: CGPoint(x: size.width * (x - halfWidth),
+                                     y: size.height * (y + 0.18)))
+            tier.addLine(to: CGPoint(x: size.width * (x + halfWidth),
+                                     y: size.height * (y + 0.18)))
+            tier.closeSubpath()
+            context.fill(tier, with: .color(color))
+        }
+    }
+
+    private func mushroom(in context: inout GraphicsContext,
+                          size: CGSize,
+                          x: CGFloat,
+                          color: Color) {
+        context.fill(Path(roundedRect: CGRect(x: size.width * (x - 0.018),
+                                              y: size.height * 0.43,
+                                              width: size.width * 0.036,
+                                              height: size.height * 0.14),
+                               cornerRadius: size.width * 0.01),
+                     with: .color(Color.white.opacity(0.90)))
+        context.fill(Path(ellipseIn: CGRect(x: size.width * (x - 0.07),
+                                             y: size.height * 0.36,
+                                             width: size.width * 0.14,
+                                             height: size.height * 0.13)),
+                     with: .color(color))
+    }
+
+    private func flower(in context: inout GraphicsContext,
+                        size: CGSize,
+                        center: CGPoint,
+                        color: Color) {
+        let radius = size.width * 0.025
+        for angle in stride(from: 0.0, to: Double.pi * 2,
+                            by: Double.pi / 2) {
+            let x = size.width * center.x + CGFloat(cos(angle)) * radius
+            let y = size.height * center.y + CGFloat(sin(angle)) * radius
+            context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
+                                                 width: radius * 2, height: radius * 2)),
+                         with: .color(color))
+        }
+        context.fill(Path(ellipseIn: CGRect(x: size.width * center.x - radius * 0.65,
+                                             y: size.height * center.y - radius * 0.65,
+                                             width: radius * 1.3, height: radius * 1.3)),
+                     with: .color(Color.orange))
+    }
+}
+
 private struct StepGoalChest: View {
+    let character: AnimalCharacter
+
+    private var prize: StepGoalPrizeKind {
+        StepGoalPrizeKind(characterID: character.id)
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
 
             ZStack {
+                // The raised lid and dark inner lip make the favourite treats
+                // read as being inside the chest instead of pasted on its face.
                 RoundedRectangle(cornerRadius: height * 0.15,
                                  style: .continuous)
-                    .fill(LinearGradient(colors: [Color(red: 0.97, green: 0.48, blue: 0.07),
-                                                  Color(red: 0.58, green: 0.20, blue: 0.03)],
-                                         startPoint: .top,
-                                         endPoint: .bottom))
-                    .frame(height: height * 0.68)
-                    .position(x: width * 0.5, y: height * 0.64)
+                    .fill(LinearGradient(colors: [character.tintColor,
+                                                  character.color],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: height * 0.12,
+                                         style: .continuous)
+                            .stroke(character.deepColor.opacity(0.72),
+                                    lineWidth: max(1, height * 0.045))
+                    }
+                    .frame(width: width * 0.86, height: height * 0.39)
+                    .position(x: width * 0.5, y: height * 0.21)
+
+                Ellipse()
+                    .fill(Color(red: 0.13, green: 0.08, blue: 0.10))
+                    .overlay {
+                        Ellipse().stroke(character.deepColor,
+                                         lineWidth: max(1, height * 0.04))
+                    }
+                    .frame(width: width * 0.86, height: height * 0.28)
+                    .position(x: width * 0.5, y: height * 0.43)
+
+                ForEach(0..<3, id: \.self) { index in
+                    StepGoalPrizeItem(kind: prize)
+                        .frame(width: width * 0.28, height: height * 0.38)
+                        .rotationEffect(.degrees(Double(index - 1) * 16))
+                        .position(x: width * (0.36 + CGFloat(index) * 0.14),
+                                  y: height * (index == 1 ? 0.29 : 0.33))
+                }
 
                 RoundedRectangle(cornerRadius: height * 0.22,
                                  style: .continuous)
-                    .fill(LinearGradient(colors: [Color(red: 1.0, green: 0.79, blue: 0.19),
-                                                  Color(red: 0.86, green: 0.35, blue: 0.03)],
+                    .fill(LinearGradient(colors: [character.color,
+                                                  character.deepColor],
                                          startPoint: .topLeading,
                                          endPoint: .bottomTrailing))
-                    .frame(height: height * 0.50)
-                    .position(x: width * 0.5, y: height * 0.30)
+                    .frame(height: height * 0.57)
+                    .position(x: width * 0.5, y: height * 0.70)
 
                 Rectangle()
-                    .fill(Color(red: 1.0, green: 0.80, blue: 0.22))
-                    .frame(width: width * 0.16, height: height * 0.84)
-                    .position(x: width * 0.5, y: height * 0.52)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.92),
+                                                  character.tintColor],
+                                         startPoint: .leading,
+                                         endPoint: .trailing))
+                    .frame(width: width * 0.13, height: height * 0.57)
+                    .position(x: width * 0.5, y: height * 0.70)
 
-                Image(systemName: "star.fill")
-                    .font(.system(size: height * 0.36, weight: .black))
-                    .foregroundStyle(Color.white, Color.yellow)
-                    .shadow(color: Color.orange.opacity(0.72), radius: 2, y: 1)
-                    .position(x: width * 0.5, y: height * 0.59)
+                Capsule()
+                    .fill(character.tintColor)
+                    .overlay {
+                        Capsule().stroke(.white.opacity(0.72),
+                                         lineWidth: max(1, height * 0.025))
+                    }
+                    .frame(width: width * 0.94, height: height * 0.13)
+                    .position(x: width * 0.5, y: height * 0.47)
+
+                StepGoalPrizeItem(kind: prize)
+                    .frame(width: width * 0.20, height: height * 0.27)
+                    .padding(height * 0.025)
+                    .background(Circle().fill(.white.opacity(0.92)))
+                    .position(x: width * 0.5, y: height * 0.72)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: height * 0.18,
                                  style: .continuous)
-                    .stroke(Color.white.opacity(0.40),
+                    .stroke(Color.white.opacity(0.52),
                             lineWidth: max(1, height * 0.035))
+                    .padding(.top, height * 0.42)
             }
             .shadow(color: .black.opacity(0.30), radius: 4, y: 3)
         }
@@ -2494,14 +3233,18 @@ private struct FloatingWorld: View {
                     let depth = worldDepth - travel * 0.46
                     let scale = max(0.22, layout.scale(at: depth) * 0.72)
                     let side = index.isMultiple(of: 2) ? CGFloat(-1) : 1
+                    let islandWidth = (layout.isPad ? CGFloat(176) : 108) * scale
+                    let islandHeight = (layout.isPad ? CGFloat(98) : 62) * scale
                     DistantFloatingIsland(character: character, seed: index)
-                        .frame(width: (layout.isPad ? 176 : 108) * scale,
-                               height: (layout.isPad ? 98 : 62) * scale)
+                        .frame(width: islandWidth, height: islandHeight)
                         .position(x: proxy.size.width / 2
                                     + side * proxy.size.width * 0.37,
                                   y: layout.y(at: depth))
-                        .opacity(sceneryOpacity(at: depth, farDepth: 11,
-                                               base: 0.32))
+                        .opacity(islandSceneryOpacity(at: depth,
+                                                      renderedHeight: islandHeight,
+                                                      layout: layout,
+                                                      farDepth: 11,
+                                                      base: 0.32))
                 }
 
                 // Midground islands are fixed to authored route depths. As
@@ -2526,17 +3269,22 @@ private struct FloatingWorld: View {
                     let baseWidth = layout.isPad
                         ? CGFloat(184 + (index * 19) % 54)
                         : CGFloat(112 + (index * 13) % 36)
+                    let islandHeight = baseWidth * 0.90 * scale
                     FloatingIsland(character: character,
                                    seed: index,
                                    showsWaterfall: index % 4 == 1)
                         .frame(width: baseWidth * scale,
-                               height: baseWidth * 0.90 * scale)
+                               height: islandHeight)
                         .position(x: proxy.size.width / 2
                                     + side * proxy.size.width * spread,
                                   y: layout.y(at: depth))
-                        .opacity(sceneryOpacity(at: depth,
-                                               farDepth: 10,
-                                               base: 0.72 + Double(index % 2) * 0.14))
+                        .opacity(islandSceneryOpacity(
+                            at: depth,
+                            renderedHeight: islandHeight,
+                            layout: layout,
+                            farDepth: 10,
+                            base: 0.72 + Double(index % 2) * 0.14
+                        ))
                 }
             }
         }
@@ -2553,6 +3301,22 @@ private func sceneryOpacity(at depth: CGFloat,
     let nearFade = min(1, max(0, Double(depth + 1.45) / 0.55))
     let farFade = min(1, max(0, Double(farDepth - depth) / 1.5))
     return base * nearFade * farFade
+}
+
+/// An island's pointed rock extends well below its grassy top. When its frame
+/// first crosses the top of the screen, that point can therefore be visible
+/// while the complete plateau is still outside the viewport. Fade the whole
+/// island in from the plateau's leading edge so rock and grass always arrive
+/// as one object.
+private func islandSceneryOpacity(at depth: CGFloat,
+                                  renderedHeight: CGFloat,
+                                  layout: StepCourseLayout,
+                                  farDepth: CGFloat,
+                                  base: Double) -> Double {
+    let plateauTopY = layout.y(at: depth) - renderedHeight * 0.42
+    let plateauReveal = min(1, max(0, Double((plateauTopY + 2) / 12)))
+    return sceneryOpacity(at: depth, farDepth: farDepth, base: base)
+        * plateauReveal
 }
 
 /// Keeps only the small world-space window that can contribute pixels. The
@@ -3218,7 +3982,12 @@ private struct GlassStepTile: View, Animatable {
                             ))
                             let label = Text(verbatim: text)
                                 .font(.system(
-                                    size: min(size.width * 0.30, 42),
+                                    // Keep the label in perspective with the
+                                    // stone. A fixed 42pt ceiling made nearby
+                                    // iPad stones grow while their numbers did
+                                    // not, leaving the answers undersized.
+                                    size: min(size.width * 0.34,
+                                              size.height * 0.38),
                                     weight: .black,
                                     design: .rounded
                                 ))
@@ -3427,6 +4196,7 @@ private struct GlassCracks: Shape {
 private struct StepCharacterSprite: View {
     let character: AnimalCharacter
     let animationID: Int
+    let playback: StepCharacterPlayback
     let reduceMotion: Bool
 
     @State private var frame = 1
@@ -3474,14 +4244,27 @@ private struct StepCharacterSprite: View {
     private func playJumpFrames() {
         playbackGeneration &+= 1
         let generation = playbackGeneration
-        let fullSequence = StepCharacterAnimation.jumpFrames(for: character.id)
-        let frames = reduceMotion
-            ? [fullSequence[0], fullSequence[2], fullSequence[4],
-               fullSequence[6], fullSequence[7]]
-            : fullSequence
-        let times: [Double] = reduceMotion
-            ? [0, 0.04, 0.08, 0.12, 0.17]
-            : [0, 0.08, 0.17, 0.28, 0.40, 0.51, 0.60, 0.70]
+        let frames: [Int]
+        let times: [Double]
+        switch playback {
+        case .fullJump:
+            let fullSequence = StepCharacterAnimation.jumpFrames(for: character.id)
+            frames = reduceMotion
+                ? [fullSequence[0], fullSequence[2], fullSequence[4],
+                   fullSequence[6], fullSequence[7]]
+                : fullSequence
+            times = reduceMotion
+                ? [0, 0.04, 0.08, 0.12, 0.17]
+                : [0, 0.08, 0.17, 0.28, 0.40, 0.51, 0.60, 0.70]
+        case .finaleTakeoff:
+            let takeoff = StepCharacterAnimation.finaleTakeoffFrames(
+                for: character.id
+            )
+            frames = reduceMotion ? [takeoff[0], takeoff[takeoff.count - 1]] : takeoff
+            times = reduceMotion
+                ? [0, 0.08]
+                : StepCharacterAnimation.finaleTakeoffTimes(frameCount: takeoff.count)
+        }
         for cue in zip(frames, times) {
             DispatchQueue.main.asyncAfter(deadline: .now() + cue.1) {
                 guard playbackGeneration == generation else { return }
@@ -3559,6 +4342,27 @@ nonisolated private enum StepCharacterAnimation {
         case "lion": [4, 2, 3, 5, 6, 7, 8, 1]
         case "elephant": [4, 6, 5, 7, 2, 8, 3, 1]
         default: [2, 3, 4, 5, 6, 7, 8, 1]
+        }
+    }
+
+    /// The finale needs anticipation and launch, but never the landing half of
+    /// the regular cycle. Start from idle, visibly compress through the deep
+    /// crouch, and finish on image 5 while the actor travels offscreen. Lion's
+    /// authored poses are stored out of order; elephant reaches the same beat
+    /// with its image-4 crouch and image-5 airborne pose.
+    static func finaleTakeoffFrames(for characterID: String) -> [Int] {
+        switch characterID {
+        case "lion": [1, 4, 2, 3, 5]
+        case "elephant": [1, 4, 5]
+        default: [1, 2, 3, 4, 5]
+        }
+    }
+
+    static func finaleTakeoffTimes(frameCount: Int) -> [Double] {
+        switch frameCount {
+        case 3: [0, 0.34, 0.94]
+        case 4: [0, 0.15, 0.36, 0.94]
+        default: [0, 0.15, 0.36, 0.72, 0.94]
         }
     }
 }

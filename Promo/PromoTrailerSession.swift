@@ -26,8 +26,15 @@ final class PromoTrailerSession {
             return
         }
 
+        // CoreSimulator's real-time recorder captures the physical screen, so
+        // fill that screen. The in-app encoder retains the fixed logical sizes
+        // above for off-screen, pixel-exact exports.
+        let resolvedLayoutSize = PromoTrailerRuntime.usesExternalCapture
+            ? scene.screen.bounds.size
+            : layoutSize
+
         let hostView = PromoTrailerHostView(
-            layoutSize: layoutSize,
+            layoutSize: resolvedLayoutSize,
             exportSize: exportSize,
             usesPadMetrics: usesPadMetrics,
             captureProvider: { [weak self] in self?.host?.view },
@@ -41,8 +48,8 @@ final class PromoTrailerSession {
 
         let controller = UIHostingController(rootView: hostView)
         controller.view.backgroundColor = .black
-        controller.view.frame = CGRect(origin: .zero, size: layoutSize)
-        controller.view.bounds = CGRect(origin: .zero, size: layoutSize)
+        controller.view.frame = CGRect(origin: .zero, size: resolvedLayoutSize)
+        controller.view.bounds = CGRect(origin: .zero, size: resolvedLayoutSize)
         controller.view.insetsLayoutMarginsFromSafeArea = false
         if #available(iOS 16.0, *) {
             controller.safeAreaRegions = []
@@ -51,7 +58,7 @@ final class PromoTrailerSession {
         let window = UIWindow(windowScene: scene)
         // On-screen origin so drawHierarchy stays reliable; may extend past the
         // device bezel when layout is taller than the simulator.
-        window.frame = CGRect(origin: .zero, size: layoutSize)
+        window.frame = CGRect(origin: .zero, size: resolvedLayoutSize)
         window.backgroundColor = .black
         window.rootViewController = controller
         window.windowLevel = .alert + 1
@@ -63,7 +70,7 @@ final class PromoTrailerSession {
 
         self.window = window
         self.host = controller
-        print("PROMO_TRAILER_WINDOW layout=\(Int(layoutSize.width))x\(Int(layoutSize.height)) export=\(Int(exportSize.width))x\(Int(exportSize.height))")
+        print("PROMO_TRAILER_WINDOW layout=\(Int(resolvedLayoutSize.width))x\(Int(resolvedLayoutSize.height)) export=\(Int(exportSize.width))x\(Int(exportSize.height))")
     }
 }
 

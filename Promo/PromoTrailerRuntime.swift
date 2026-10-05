@@ -12,7 +12,18 @@ import CoreGraphics
 enum PromoTrailerRuntime {
     /// `-PromoTrailer` enables the deterministic teaser host.
     static var isActive: Bool {
+#if DEBUG || TRAILER_EXPORT
         ProcessInfo.processInfo.arguments.contains("-PromoTrailer")
+#else
+        false
+#endif
+    }
+
+    /// When present, CoreSimulator records the window in real time. This is
+    /// considerably faster and preserves SwiftUI's native animation clock;
+    /// the in-app frame encoder remains available for device-side exports.
+    static var usesExternalCapture: Bool {
+        isActive && ProcessInfo.processInfo.arguments.contains("-PromoExternalCapture")
     }
 
     /// `-PromoSize=886x1920` or `1200x1600`. Defaults to iPhone teaser size.
@@ -46,7 +57,7 @@ enum PromoTrailerRuntime {
     }
 
     static var exportFileName: String {
-        "claw-math-app-store-teaser-\(exportTag).mp4"
+        "math-steps-app-store-teaser-\(exportTag).mp4"
     }
 
     /// iPad composition uses the game's pad metrics. iPhone teasers use phone
@@ -59,12 +70,12 @@ enum PromoTrailerRuntime {
 
     /// Habitat birds, flags, leaves and water all share this clock in the
     /// teaser so scenery stays behind the claw instead of racing it.
-    static var ambienceTimeScale: Double { isActive ? 0.34 : 1 }
+    static var ambienceTimeScale: Double { isActive ? 0.72 : 1 }
 
     static func ambienceClock(_ time: TimeInterval) -> TimeInterval {
         isActive ? time * ambienceTimeScale : time
     }
 
     /// Soft ceiling so the icon beat is never clipped.
-    static var maximumDuration: TimeInterval { 26 }
+    static var maximumDuration: TimeInterval { 40 }
 }

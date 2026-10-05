@@ -362,6 +362,7 @@ struct GameView: View {
                                    tutorialPlan: tutorial.clawPlan,
                                    bottomReserve: screenInsets.bottom,
                                    scoreTarget: scoreTarget,
+                                   scriptedSelection: nil,
                                    onSelect: model.select,
                                    onRewardArrived: model.scoreBubbleArrived,
                                    onCorrectLanding: {
@@ -470,36 +471,9 @@ struct GameView: View {
             showsPauseCard = true
             showsIntro = true
         } label: {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(colors: [hudPalette.highlight, hudPalette.shade],
-                                       startPoint: .topLeading,
-                                       endPoint: .bottomTrailing)
-                    )
-                    .overlay {
-                        Circle()
-                            .stroke(hudPalette.rim,
-                                    lineWidth: isPad ? 6 : 4)
-                    }
-                    .overlay(alignment: .topLeading) {
-                        Capsule()
-                            .fill(.white.opacity(0.48))
-                            .frame(width: hudHeight * 0.38,
-                                   height: isPad ? 7 : 5)
-                            .rotationEffect(.degrees(-24))
-                            .offset(x: hudHeight * 0.17, y: hudHeight * 0.13)
-                    }
-
-                Image(systemName: "pause.fill")
-                    .font(.system(size: pauseGlyphSize, weight: .black))
-                    .foregroundStyle(.white)
-                    .shadow(color: hudPalette.glow.opacity(0.45), radius: 2, y: 2)
-            }
-            .frame(width: hudHeight, height: hudHeight)
-            .shadow(color: hudPalette.glow.opacity(0.28),
-                    radius: isPad ? 9 : 6,
-                    y: isPad ? 6 : 4)
+            GameplayPauseBadge(palette: hudPalette,
+                               isPad: isPad,
+                               side: hudHeight)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
@@ -511,7 +485,6 @@ struct GameView: View {
     private var hudMetricSpacing: CGFloat { isPad ? 6 : 4 }
     private var hudMetricWidth: CGFloat { isPad ? 148 : 98 }
     private var hudMetricHeight: CGFloat { (hudHeight - hudMetricSpacing) / 2 }
-    private var pauseGlyphSize: CGFloat { isPad ? 31 : 23 }
     private var hudPalette: GameplayHUDPalette { GameplayHUDPalette(character: character) }
 
     /// The reef only ticks while the level is actually being played: never
@@ -527,7 +500,7 @@ struct GameView: View {
 /// the exception: its turquoise sits on a blue sky, so the HUD uses a vivid
 /// orange. The rim stays near #EC9E4A; the fill keeps the old candy shape,
 /// bright orange into a saturated darker orange, instead of sinking into brown.
-private struct GameplayHUDPalette {
+struct GameplayHUDPalette {
     let character: AnimalCharacter
 
     private var usesDogOrange: Bool { character.id == "dog" }
@@ -573,9 +546,48 @@ private struct GameplayHUDPalette {
     }
 }
 
+/// Shared production pause artwork. Trailer capture uses this exact badge so
+/// its silhouette and character palette cannot drift from the playable game.
+struct GameplayPauseBadge: View {
+    let palette: GameplayHUDPalette
+    let isPad: Bool
+    let side: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(colors: [palette.highlight, palette.shade],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .overlay {
+                    Circle()
+                        .stroke(palette.rim, lineWidth: isPad ? 6 : 4)
+                }
+                .overlay(alignment: .topLeading) {
+                    Capsule()
+                        .fill(.white.opacity(0.48))
+                        .frame(width: side * 0.38, height: isPad ? 7 : 5)
+                        .rotationEffect(.degrees(-24))
+                        .offset(x: side * 0.17, y: side * 0.13)
+                }
+
+            Image(systemName: "pause.fill")
+                .font(.system(size: isPad ? 31 : 23, weight: .black))
+                .foregroundStyle(.white)
+                .shadow(color: palette.glow.opacity(0.45), radius: 2, y: 2)
+        }
+        .frame(width: side, height: side)
+        .shadow(color: palette.glow.opacity(0.28),
+                radius: isPad ? 9 : 6,
+                y: isPad ? 6 : 4)
+    }
+}
+
 /// The question plaque shares the HUD's layout row, keeping its top and bottom
 /// edges locked to the pause button and the combined time/score column.
-private struct GameplayPromptBadge: View {
+struct GameplayPromptBadge: View {
     let prompt: String
     let isPad: Bool
     let palette: GameplayHUDPalette
@@ -617,7 +629,7 @@ private struct GameplayPromptBadge: View {
     }
 }
 
-private struct GameplayTimerBadge: View {
+struct GameplayTimerBadge: View {
     @ObservedObject var clock: GameClock
     let isPad: Bool
     let width: CGFloat
@@ -664,7 +676,7 @@ private struct GameplayTimerBadge: View {
     }
 }
 
-private struct ClawScoreBadge: View {
+struct ClawScoreBadge: View {
     let score: Int
     let maximum: Int
     let isPad: Bool

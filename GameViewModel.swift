@@ -179,17 +179,6 @@ final class GameViewModel: ObservableObject {
 
     /// Starts the level, resuming a paused session when one is waiting.
     func begin() async {
-        if PromoTrailerRuntime.isActive {
-            isPaused = false
-            isTutorialClockPaused = true
-            trailerOwnsRounds = true
-            let session = PromoTrailerScript.session()
-            engine.trailerInstallSession(puzzle: session.puzzle, rounds: session.rounds)
-            clock.configure(total: PromoTrailerScript.clockTotal,
-                            remaining: PromoTrailerScript.clockStart)
-            sync()
-            return
-        }
         guard engine.state == .intro else { return }
         let token = generation
         prepare()

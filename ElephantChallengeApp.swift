@@ -138,11 +138,7 @@ struct ElephantChallengeApp: App {
             productionRoot
         }
 #else
-        if PromoTrailerRuntime.isActive {
-            PromoTrailerBootstrapView()
-        } else {
-            productionRoot
-        }
+        productionRoot
 #endif
     }
 

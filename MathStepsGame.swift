@@ -256,12 +256,7 @@ struct MathStepsPlayfield: View {
             let layout = StepCourseLayout(size: proxy.size,
                                           isPad: isPad,
                                           bottomReserve: bottomReserve)
-            let characterSize = StepCharacterSprite.hasAnimation(for: character)
-                ? layout.dogSize
-                    * StepCharacterAnimation.characterScale(
-                        for: character.id
-                    )
-                : layout.dogSize / 1.5
+            let characterSize = layout.characterSize(for: character)
             // Each authored square canvas leaves a different amount of room
             // below the feet. Normalise that transparent padding so every
             // idle pose meets the same world-space contact shadow.
@@ -745,10 +740,7 @@ struct MathStepsPlayfield: View {
         // and therefore enters without a separate pop-in animation.
         let width = layout.goalWidth(at: depth)
         let height = layout.goalHeight(for: width)
-        let characterSize = StepCharacterSprite.hasAnimation(for: character)
-            ? layout.dogSize
-                * StepCharacterAnimation.characterScale(for: character.id)
-            : layout.dogSize / 1.5
+        let characterSize = layout.characterSize(for: character)
         let chestMetrics = StepGoalChestMetrics(characterID: character.id)
         let perspective = layout.scale(at: depth) / layout.scale(at: 0)
         let chestWidth = characterSize * chestMetrics.widthRatio * perspective
@@ -2014,6 +2006,28 @@ private struct StepCourseLayout {
     var dogSize: CGFloat {
         Self.phoneCharacterSize
             * (isPad ? padScaleFromPhone * Self.padCharacterScale : 1)
+    }
+    /// Keep the idle silhouette below the answer-label safe zone on iPad.
+    /// This is character-specific because every square source canvas has a
+    /// different transparent top inset. The clamp is derived from the actual
+    /// layout, so an 11-inch iPad does not inherit the reduction needed by a
+    /// wider 13-inch model. Phone sizing remains untouched.
+    func characterSize(for character: AnimalCharacter) -> CGFloat {
+        guard StepCharacterSprite.hasAnimation(for: character) else {
+            return dogSize / 1.5
+        }
+        let proposedSize = dogSize
+            * StepCharacterAnimation.characterScale(for: character.id)
+        guard isPad else { return proposedSize }
+
+        // The label's visible glyph ends about 0.19 tile-heights below the row
+        // centre. The extra 0.03 is the protected breathing room requested by
+        // the composition, rather than merely avoiding pixel-level overlap.
+        let safeZoneBottom = answerY + tileHeight(at: 0) * 0.22
+        let availableRise = max(0, liftCenterY(cameraPhase: 0) - safeZoneBottom)
+        let maximumSafeSize = availableRise
+            / StepCharacterAnimation.idleTopReachRatio(for: character.id)
+        return min(proposedSize, maximumSafeSize)
     }
     /// The trapezoid's narrow top edge must also overhang the viewport; merely
     /// making its wider bottom edge screen-wide still exposes both side cuts.
@@ -3861,6 +3875,25 @@ nonisolated private enum StepCharacterAnimation {
         }
     }
 
+    /// Distance from the shared foot-contact point to the highest visible
+    /// idle-frame pixel, expressed as a fraction of the rendered square. These
+    /// measurements include each character's authored grounding correction.
+    static func idleTopReachRatio(for characterID: String) -> CGFloat {
+        switch characterID {
+        case "dog": return 0.893
+        case "lion": return 0.929
+        case "octopus": return 0.868
+        case "crab": return 0.803
+        case "elephant": return 0.860
+        case "bear": return 0.830
+        case "fox": return 0.933
+        case "frog": return 0.896
+        case "penguin": return 0.727
+        case "bunny": return 0.893
+        default: return 0.90
+        }
+    }
+
     /// Correct systematic authored-size changes without flattening genuine
     /// pose changes such as crouched legs or raised arms.
     static func frameScale(for characterID: String, frame: Int) -> CGFloat {
@@ -3960,9 +3993,7 @@ struct StepGoalHeavenQAView: View {
             let layout = StepCourseLayout(size: proxy.size,
                                           isPad: isPad,
                                           bottomReserve: proxy.safeAreaInsets.bottom)
-            let characterSize = StepCharacterSprite.hasAnimation(for: character)
-                ? layout.dogSize * StepCharacterAnimation.characterScale(for: character.id)
-                : layout.dogSize / 1.5
+            let characterSize = layout.characterSize(for: character)
             let grounding = characterSize
                 * StepCharacterAnimation.groundingOffsetRatio(for: character.id)
             let chestMetrics = StepGoalChestMetrics(characterID: character.id)

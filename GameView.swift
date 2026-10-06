@@ -340,6 +340,7 @@ struct GameView: View {
                     + scoreHorizontalPadding + scoreIconWidth / 2,
                 y: hudTop + hudMetricHeight + hudMetricSpacing + hudMetricHeight / 2
             )
+            let hidesHUD = playsLevelCompletion || playsTimeOutFinale || showsResult
 
             ZStack(alignment: .top) {
                 MathStepsPlayfield(round: model.round,
@@ -383,9 +384,9 @@ struct GameView: View {
                 hud
                     .padding(.horizontal, horizontalHUDPadding)
                     .padding(.top, hudTop)
-                    .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
-                    .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
-                    .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
+                    .opacity(hidesHUD ? 0 : 1)
+                    .animation(.easeOut(duration: 0.22), value: hidesHUD)
+                    .allowsHitTesting(!hidesHUD)
 
                 // The walkthrough speaks from just under the HUD, clear of both the
                 // sum on the coral and the water the first steps ask the player to

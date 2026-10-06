@@ -15,6 +15,7 @@
 		A7C0DE20306C406F0035F17C /* GoalHeavenParticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */; };
 		A7C0DE20406C406F0035F17C /* GoalHeavenSkyIslands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DE10406C406F0035F17C /* GoalHeavenSkyIslands.swift */; };
 		AA00000130A0000000000001 /* MathStepsGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000230A0000000000002 /* MathStepsGame.swift */; };
+		F94004A13074499600BC6413 /* sfx_answer_tap.caf in Resources */ = {isa = PBXBuildFile; fileRef = F94004A03074499600BC6413 /* sfx_answer_tap.caf */; };
 		F95BEE71306C406F0035F17C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE5B306C406F0035F17C /* SettingsView.swift */; };
 		F95BEE72306C406F0035F17C /* QuestionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE27306C406F0035F17C /* QuestionGenerator.swift */; };
 		F95BEE73306C406F0035F17C /* PremiumStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F95BEE48306C406F0035F17C /* PremiumStore.swift */; };
@@ -112,6 +113,7 @@
 		A7C0DE10306C406F0035F17C /* GoalHeavenParticles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenParticles.swift; sourceTree = "<group>"; };
 		A7C0DE10406C406F0035F17C /* GoalHeavenSkyIslands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalHeavenSkyIslands.swift; sourceTree = "<group>"; };
 		AA00000230A0000000000002 /* MathStepsGame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathStepsGame.swift; sourceTree = "<group>"; };
+		F94004A03074499600BC6413 /* sfx_answer_tap.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_answer_tap.caf; sourceTree = "<group>"; };
 		F95BEE06306C404B0035F17C /* Math Steps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Math Steps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F95BEE16306C406F0035F17C /* AnimalHabitats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimalHabitats.swift; sourceTree = "<group>"; };
 		F95BEE17306C406F0035F17C /* AppAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAudio.swift; sourceTree = "<group>"; };
@@ -250,6 +252,7 @@
 				F95BEE47306C406F0035F17C /* PlaytimeTracker.swift */,
 				F95BEE48306C406F0035F17C /* PremiumStore.swift */,
 				F95BEE49306C406F0035F17C /* PremiumView.swift */,
+				F94004A03074499600BC6413 /* sfx_answer_tap.caf */,
 				F95BEE4A306C406F0035F17C /* Products.storekit */,
 				F95BEE4B306C406F0035F17C /* ProgressSync.swift */,
 				F95BEE55306C406F0035F17C /* Promo */,
@@ -418,6 +421,7 @@
 				F95BEEAE306C406F0035F17C /* app_icon_clean.png in Resources */,
 				F95BEEAF306C406F0035F17C /* sfx_take_nut.caf in Resources */,
 				F95BEEB0306C406F0035F17C /* sfx_card_flight.caf in Resources */,
+				F94004A13074499600BC6413 /* sfx_answer_tap.caf in Resources */,
 				F95BEEB1306C406F0035F17C /* sfx_double_score.caf in Resources */,
 				F95BEEB2306C406F0035F17C /* Localizable.xcstrings in Resources */,
 				F95BEEB3306C406F0035F17C /* score_increase_main.caf in Resources */,

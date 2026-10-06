@@ -99,7 +99,7 @@ final class PromoTrailerDirector: ObservableObject {
         selectedOptionID = optionID
         pendingWasCorrect = option.isCorrect
         pendingRaisedHighWater = false
-        cue("sfx_select", volume: 0.20)
+        cue("sfx_answer_tap", volume: 0.17)
 
         if option.isCorrect {
             currentStep += 1

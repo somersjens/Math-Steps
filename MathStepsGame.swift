@@ -540,14 +540,18 @@ struct MathStepsPlayfield: View {
 
     private func decorativeRows(layout: StepCourseLayout) -> some View {
         let standingIndex = currentRouteIndex
-        let visibleFutureCount = min(layout.offscreenRowDepth,
-                                     remainingFutureRounds)
+        let firstFutureIndex = standingIndex + 1
+        let lastFutureIndex = min(routeRounds.count - 1,
+                                  standingIndex + layout.offscreenRowDepth)
         return ZStack {
-            if visibleFutureCount > 0 {
-                ForEach(Array((1...visibleFutureCount).reversed()), id: \.self) { row in
-                    let depth = CGFloat(row) - renderedCameraPhase
+            if firstFutureIndex <= lastFutureIndex {
+                // Give every row a stable absolute identity and derive its
+                // depth from the same route progress as the goal island. This
+                // prevents their mutual spacing from shifting at a landing,
+                // when `currentRouteIndex` advances and `cameraPhase` resets.
+                ForEach(Array((firstFutureIndex...lastFutureIndex).reversed()), id: \.self) { routeIndex in
+                    let depth = CGFloat(routeIndex) - routeProgress
                     let perspective = layout.tilePerspective(at: depth)
-                    let routeIndex = standingIndex + row
                     StepDecorativeRow(character: character,
                                       isPad: isPad,
                                       round: routeRounds[routeIndex],
@@ -1507,7 +1511,7 @@ struct MathStepsPlayfield: View {
         // The icon can take over as soon as the launched character's complete
         // artwork has crossed the top edge. Waiting for the full launch
         // animation left an unnecessary empty beat after it was already gone.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.58 : 2.10)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.50 : 1.90)) {
             guard animationToken == token else { return }
             // Keep the completed actor out of every later render, including
             // the full-screen-cover dismissal back to the menu. Model cleanup

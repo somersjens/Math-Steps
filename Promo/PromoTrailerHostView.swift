@@ -42,7 +42,13 @@ struct PromoTrailerHostView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let horizontalPadding: CGFloat = usesPadMetrics ? 18 : 7
+            // The external iPhone render loses roughly eleven logical points
+            // on either side when its Dynamic-Island strip is cropped to the
+            // App Store aspect ratio. Keep the HUD inside that final crop,
+            // including its outer glow/shadow.
+            let horizontalPadding: CGFloat = usesPadMetrics
+                ? 18
+                : (PromoTrailerRuntime.usesExternalCapture ? 24 : 12)
             let hudTop = topInset + (usesPadMetrics ? 8 : 6)
             let availableHUDWidth = max(0, proxy.size.width - horizontalPadding * 2)
             let scoreTarget = CGPoint(
@@ -246,9 +252,10 @@ struct PromoTrailerHostView: View {
         linkTarget = proxy
         let link = CADisplayLink(target: proxy,
                                  selector: #selector(PromoDisplayLinkProxy.tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30,
-                                                        maximum: 30,
-                                                        preferred: 30)
+        let displayFPS: Float = PromoTrailerRuntime.usesExternalCapture ? 60 : 30
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: displayFPS,
+                                                        maximum: displayFPS,
+                                                        preferred: displayFPS)
         link.add(to: .main, forMode: .common)
         displayLink = link
 #endif

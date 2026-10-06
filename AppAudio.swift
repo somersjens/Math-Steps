@@ -166,6 +166,7 @@ final class AppAudio: NSObject, ObservableObject {
         Effect(key: "cardFlight",    file: "sfx_card_flight",    ext: "caf", volume: 0.812, lead: 0.35),
         Effect(key: "cardTotal",     file: "sfx_point_up",       ext: "caf", volume: 0.092, lead: 0.0),
         Effect(key: "cardTotalMenu", file: "score_increase_main", ext: "caf", volume: 0.18, lead: 0.01),
+        Effect(key: "answerTap",     file: "sfx_answer_tap",     ext: "caf", volume: 0.17, lead: 0.0),
         Effect(key: "select",        file: "sfx_select",         ext: "caf", volume: 0.17, lead: 0.0),
         Effect(key: "switchOn",      file: "sfx_switch_on",      ext: "caf", volume: 0.89, lead: 0.200),
         Effect(key: "switchOff",     file: "sfx_switch_off",     ext: "caf", volume: 1.0,  lead: 0.170)
@@ -705,7 +706,7 @@ final class AppAudio: NSObject, ObservableObject {
     func playCorrect()          { playEffect("correct") }
     func playWrong()            { playEffect("wrong") }
     func playFallDown()         { playEffect("fallDown") }
-    func playAnswerTap()        { playEffect("select") }
+    func playAnswerTap()        { playEffect("answerTap") }
     func playTakeNut()          { playEffect("takeNut") }
     func playReleaseGrip()      { playEffect("releaseGrip") }
     func playMove()             { playEffect("move") }

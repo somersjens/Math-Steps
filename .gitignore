@@ -1,0 +1,7 @@
+.DS_Store
+
+# Generated App Store trailer renders and visual-QA frames are large build
+# artifacts. Keep the source and icon artwork, but never send these outputs to
+# the Git remote.
+Promo/Exports/
+Promo/Previews/

@@ -302,7 +302,12 @@ struct MathStepsPlayfield: View {
                                    worldTravel: worldTravel)
                 }
                 if let rewindPosition {
-                    rewindRows(layout: layout, position: rewindPosition)
+                    StepRewindRows(layout: layout,
+                                   character: character,
+                                   routeRounds: routeRounds,
+                                   brokenOptionIDs: brokenRouteOptionIDs,
+                                   hidesIncorrectAnswers: tutorialPlan.hidesIncorrectAnswers,
+                                   position: rewindPosition)
                     if rewindPosition <= 0.001 { startDeck(layout: layout) }
                 } else {
                     decorativeRows(layout: layout)
@@ -562,48 +567,6 @@ struct MathStepsPlayfield: View {
                                                           laneOffset: cameraLaneOffset),
                                   y: layout.y(at: depth))
                         .opacity(layout.opacity(at: depth))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    /// During a failed-answer return the bridge is not rebuilt at the start.
-    /// The already planned rows themselves travel through one continuous
-    /// perspective until route position zero is back in front of the player.
-    private func rewindRows(layout: StepCourseLayout, position: CGFloat) -> some View {
-        let lastVisibleIndex = min(routeRounds.count - 1,
-                                   Int(ceil(position)) + layout.offscreenRowDepth)
-        return ZStack {
-            if lastVisibleIndex >= 0 {
-                ForEach(Array(0...lastVisibleIndex).reversed(), id: \.self) { routeIndex in
-                    let depth = CGFloat(routeIndex) - position
-                    let perspective = layout.tilePerspective(at: depth)
-                    // The failed row takes over from `answerTiles` at depth
-                    // exactly -1. It must already be fully opaque there or
-                    // its two intact stones disappear for a frame and then
-                    // fade back during the rewind. Rows still below the near
-                    // edge get a short, off-screen fade before they enter.
-                    let nearEdgeOpacity = min(
-                        1,
-                        max(0, Double((depth + 1.12) / 0.12))
-                    )
-                    StepDecorativeRow(character: character,
-                                      isPad: isPad,
-                                      round: routeRounds[routeIndex],
-                                      brokenOptionIDs: brokenRouteOptionIDs,
-                                      hidesIncorrectAnswers: tutorialPlan.hidesIncorrectAnswers
-                                        && routeRounds[routeIndex].number <= 2,
-                                      perspective: perspective,
-                                      mutesNumbers: true,
-                                      usesDetailedEffects: false)
-                        .frame(width: layout.courseWidth * perspective.bottomScale,
-                               height: layout.tileHeight(at: depth))
-                        .position(x: layout.size.width / 2,
-                                  y: layout.y(at: depth))
-                        .opacity(depth > CGFloat(layout.offscreenRowDepth) + 0.2
-                            ? 0
-                            : layout.opacity(at: depth) * nearEdgeOpacity)
                 }
             }
         }
@@ -2316,6 +2279,63 @@ private struct StepCourseRails: View, Animatable {
                 strokeBeam(support, width: width)
             }
         }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Own the rewind's world-space interpolation before choosing visible rows.
+/// Computing that window in the parent immediately uses the target position
+/// zero, removing later rows while they are still visible at the failed step.
+private struct StepRewindRows: View, Animatable {
+    let layout: StepCourseLayout
+    let character: AnimalCharacter
+    let routeRounds: [GameRound]
+    let brokenOptionIDs: Set<UUID>
+    let hidesIncorrectAnswers: Bool
+    var position: CGFloat
+
+    var animatableData: CGFloat {
+        get { position }
+        set { position = newValue }
+    }
+
+    var body: some View {
+        let firstVisibleIndex = max(0, Int(floor(position)) - 1)
+        let lastVisibleIndex = min(routeRounds.count - 1,
+                                   Int(ceil(position)) + layout.offscreenRowDepth)
+        ZStack {
+            if firstVisibleIndex <= lastVisibleIndex {
+                ForEach(Array((firstVisibleIndex...lastVisibleIndex).reversed()), id: \.self) { routeIndex in
+                    let depth = CGFloat(routeIndex) - position
+                    let perspective = layout.tilePerspective(at: depth)
+                    // The failed row takes over at depth -1 fully opaque.
+                    // Earlier rows fade in below the screen as they return.
+                    let nearEdgeOpacity = min(
+                        1,
+                        max(0, Double((depth + 1.12) / 0.12))
+                    )
+                    StepDecorativeRow(character: character,
+                                      isPad: layout.isPad,
+                                      round: routeRounds[routeIndex],
+                                      brokenOptionIDs: brokenOptionIDs,
+                                      hidesIncorrectAnswers: hidesIncorrectAnswers
+                                        && routeRounds[routeIndex].number <= 2,
+                                      perspective: perspective,
+                                      mutesNumbers: true,
+                                      usesDetailedEffects: false)
+                        .frame(width: layout.courseWidth * perspective.bottomScale,
+                               height: layout.tileHeight(at: depth))
+                        .position(x: layout.size.width / 2,
+                                  y: layout.y(at: depth))
+                        .opacity(depth > CGFloat(layout.offscreenRowDepth) + 0.2
+                            ? 0
+                            : layout.opacity(at: depth) * nearEdgeOpacity)
+                }
+            }
+        }
+        // Every transform already uses this frame's interpolated depth.
+        // A second implicit animation would lag behind the camera again.
+        .transaction { $0.animation = nil }
         .allowsHitTesting(false)
     }
 }

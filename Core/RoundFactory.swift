@@ -60,6 +60,9 @@ nonisolated public struct GameRound: Identifiable, Equatable, Sendable {
 nonisolated public final class RoundFactory {
     private let generator: QuestionGenerator
     private let random: RandomSource
+    /// The first round of a prepared run anchors the ten-sum cycle. Later
+    /// rounds continue from there, including a resume that starts at round 11.
+    private var alignedOrderRoute = false
     /// Kept separate from question generation so laying out answers never
     /// changes which sums a seed produces. The round number makes the layout
     /// reproducible after pausing and rebuilding a session.
@@ -81,10 +84,15 @@ nonisolated public final class RoundFactory {
 
     public func reset() {
         generator.reset()
+        alignedOrderRoute = false
     }
 
     /// Builds the round for a given 1-based round number.
     public func makeRound(number: Int) -> GameRound {
+        if !alignedOrderRoute {
+            generator.alignOrderRoute(toRound: number)
+            alignedOrderRoute = true
+        }
         let question = generator.next(requiredDistractors: GameConfig.distractorCount)
         return makeRound(number: number, question: question)
     }
@@ -92,6 +100,10 @@ nonisolated public final class RoundFactory {
     /// A full board of sums, preferring a different printed answer each time
     /// so the claw pile is not stacked with identical shells.
     public func makeSession(count: Int) -> [GameRound] {
+        if !alignedOrderRoute {
+            generator.alignOrderRoute(toRound: 1)
+            alignedOrderRoute = true
+        }
         var used: Set<AnswerValue> = []
         return (1...count).map { number in
             let question = generator.next(requiredDistractors: GameConfig.distractorCount,

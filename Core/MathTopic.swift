@@ -248,25 +248,33 @@ nonisolated public enum MathScaling {
 /// straight from the session's step counter — no randomness at all — so the
 /// same level always walks the same path.
 ///
-/// Addition and subtraction keep one uninterrupted arithmetic progression for
-/// the full session. The tables still practise the conventional ×1 … ×12 lap.
+/// One block is ten sums, stepping by the practised number. The next block is
+/// that same run with every varying number one higher. The tables cycle ×1 … ×10.
 nonisolated public enum PracticeRoute {
-    /// The other operand of `n + ?`. For n = 2 this walks 2, 4, 6, 8, …
-    /// without switching to the odd numbers after five questions. Continuing
-    /// for the whole board also keeps every answer in Reeks unique.
+    /// One block of ten. The next block is the same sums, one higher.
+    public static let lapLength = 10
+
+    private static func place(_ step: Int) -> Int { max(0, step) % lapLength }
+
+    private static func roundShift(_ step: Int) -> Int { max(0, step) / lapLength }
+
+    /// The varying operand of an addition. For n = 1 this is 1, 2, … 10.
+    /// For n = 2 this is 2, 4, … 20. The next block adds one to each.
     public static func additionOther(number n: Int, step: Int) -> Int {
-        max(1, n) * (max(0, step) + 1)
+        let number = max(1, n)
+        return number * (place(step) + 1) + roundShift(step)
     }
 
-    /// Subtraction follows the same predictable step size: for n = 2 the
-    /// results are 2, 4, 6, 8, … throughout the complete board.
+    /// The starting number of `? − n`. For n = 2 this walks 22−2 … 4−2.
+    /// The next block is 23−2 … 5−2.
     public static func subtractionStart(number n: Int, step: Int) -> Int {
-        max(1, n) * (max(0, step) + 2)
+        let number = max(1, n)
+        return number * (lapLength + 1 - place(step)) + roundShift(step)
     }
 
-    /// The multiplier of `t × ?`, cycling 1 … 12 forever.
+    /// The multiplier of `t × ?`, cycling 1 … 10 and then repeating.
     public static func tableMultiplier(step: Int) -> Int {
-        (step % 12) + 1
+        place(step) + 1
     }
 
     /// The whole a fraction or percentage question works with, taken from a
